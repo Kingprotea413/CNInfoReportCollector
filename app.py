@@ -9,13 +9,17 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from cninfo_pipeline import AnnualReportPipeline
+from cninfo_pipeline import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL, AnnualReportPipeline
 
 
 APP_ID = "CNInfoReportCollector"
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / APP_ID
 CONFIG_PATH = CONFIG_DIR / "config.json"
 DEFAULT_OUTPUT_DIR = Path.home() / "Desktop" / "财报输出"
+
+
+def resolve_unit_label(candidate: str | None) -> str:
+    return candidate if candidate in AVAILABLE_UNIT_LABELS else DEFAULT_UNIT_LABEL
 
 
 def load_settings() -> dict[str, str]:
@@ -40,9 +44,10 @@ class AppWindow:
         self.worker: threading.Thread | None = None
         self.settings = load_settings()
         self.output_dir = Path(self.settings.get("output_dir", str(DEFAULT_OUTPUT_DIR)))
+        self.unit_label = resolve_unit_label(self.settings.get("unit_label"))
 
         self.root.title("巨潮年报资产负债表采集器")
-        self.root.geometry("680x320")
+        self.root.geometry("680x360")
         self.root.resizable(False, False)
 
         container = ttk.Frame(self.root, padding=20)
@@ -73,6 +78,21 @@ class AppWindow:
         output_entry.pack(side="left", padx=(10, 10), fill="x", expand=True)
         ttk.Button(output_row, text="选择文件夹", command=self.choose_output_dir).pack(side="left")
 
+        unit_row = ttk.Frame(container)
+        unit_row.pack(fill="x", pady=(2, 10))
+
+        ttk.Label(unit_row, text="导出单位").pack(side="left")
+        self.unit_var = tk.StringVar(value=self.unit_label)
+        self.unit_combobox = ttk.Combobox(
+            unit_row,
+            textvariable=self.unit_var,
+            state="readonly",
+            values=AVAILABLE_UNIT_LABELS,
+            width=12,
+        )
+        self.unit_combobox.pack(side="left", padx=(10, 0))
+        self.unit_combobox.bind("<<ComboboxSelected>>", self.on_unit_selected)
+
         self.progress = ttk.Progressbar(container, length=620, mode="determinate", maximum=100)
         self.progress.pack(fill="x", pady=(14, 8))
 
@@ -86,6 +106,12 @@ class AppWindow:
         )
 
         self.root.after(150, self.poll_events)
+
+    def on_unit_selected(self, _event: object | None = None) -> None:
+        self.unit_label = resolve_unit_label(self.unit_var.get())
+        self.unit_var.set(self.unit_label)
+        self.settings["unit_label"] = self.unit_label
+        save_settings(self.settings)
 
     def choose_output_dir(self) -> None:
         initial_dir = self.output_dir if self.output_dir.exists() else DEFAULT_OUTPUT_DIR
@@ -114,22 +140,25 @@ class AppWindow:
 
         self.progress["value"] = 0
         self.status_var.set("任务已启动。")
-        self.result_var.set(f"正在保存到：{self.output_dir}")
+        self.on_unit_selected()
+        self.result_var.set(f"正在保存到：{self.output_dir}（单位：{self.unit_label}）")
         self.start_button.config(state="disabled")
         self.entry.config(state="disabled")
+        self.unit_combobox.config(state="disabled")
 
         self.worker = threading.Thread(
             target=self._run_pipeline,
-            args=(company, str(self.output_dir)),
+            args=(company, str(self.output_dir), self.unit_label),
             daemon=True,
         )
         self.worker.start()
 
-    def _run_pipeline(self, company: str, output_dir: str) -> None:
+    def _run_pipeline(self, company: str, output_dir: str, unit_label: str) -> None:
         try:
             result = self.pipeline.run(
                 company_query=company,
                 output_dir=output_dir,
+                unit_label=unit_label,
                 progress=self._publish_progress,
             )
             self.events.put(("success", result))
@@ -156,28 +185,39 @@ class AppWindow:
                 self.status_var.set(
                     f"{result.company.secname} 采集完成，共导出 {result.annual_records} 份年报。"
                 )
-                self.result_var.set(f"导出文件：{result.output_path.resolve()}")
+                self.result_var.set(
+                    f"导出文件：{result.output_path.resolve()}（单位：{result.unit_label}）"
+                )
                 messagebox.showinfo("采集完成", f"Excel 已生成：\n{result.output_path.resolve()}")
                 self.start_button.config(state="normal")
                 self.entry.config(state="normal")
+                self.unit_combobox.config(state="readonly")
             elif event_type == "error":
                 self.status_var.set("采集失败。")
                 messagebox.showerror("采集失败", str(payload))
                 self.start_button.config(state="normal")
                 self.entry.config(state="normal")
+                self.unit_combobox.config(state="readonly")
 
         self.root.after(150, self.poll_events)
 
 
-def run_headless(company: str, output_dir: str) -> int:
+def run_headless(company: str, output_dir: str, unit_label: str) -> int:
     pipeline = AnnualReportPipeline()
 
     def reporter(percent: int, message: str) -> None:
         print(f"[{percent:>3}%] {message}")
 
-    result = pipeline.run(company_query=company, output_dir=output_dir, progress=reporter)
+    result = pipeline.run(
+        company_query=company,
+        output_dir=output_dir,
+        unit_label=unit_label,
+        progress=reporter,
+    )
     print(
-        f"导出完成：{result.company.secname}({result.company.seccode}) -> {result.output_path.resolve()}"
+        "导出完成："
+        f"{result.company.secname}({result.company.seccode}) -> {result.output_path.resolve()}"
+        f" [单位：{result.unit_label}]"
     )
     return 0
 
@@ -186,6 +226,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="巨潮资讯年报资产负债表采集器")
     parser.add_argument("--company", default="长江电力", help="公司名称或证券代码")
     parser.add_argument("--output-dir", default="outputs", help="Excel 输出目录")
+    parser.add_argument(
+        "--unit",
+        default=DEFAULT_UNIT_LABEL,
+        choices=AVAILABLE_UNIT_LABELS,
+        help="导出单位",
+    )
     parser.add_argument("--headless", action="store_true", help="不启动窗口，直接命令行执行")
     parser.add_argument(
         "--self-test-gui",
@@ -198,7 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     if args.headless:
-        return run_headless(args.company, args.output_dir)
+        return run_headless(args.company, args.output_dir, args.unit)
 
     root = tk.Tk()
     AppWindow(root)

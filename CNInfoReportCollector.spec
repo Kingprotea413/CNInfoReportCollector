@@ -1,8 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+project_root = Path(globals().get("__file__", "CNInfoReportCollector.spec")).resolve().parent
+icon_path = project_root / "assets" / "app_icon.ico"
 
 a = Analysis(
-    ['C:\\Users\\Pangolin\\Desktop\\财报pipeline\\app.py'],
+    [str(project_root / 'app.py')],
     pathex=[],
     binaries=[],
     datas=[],
@@ -35,4 +39,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(icon_path),
 )

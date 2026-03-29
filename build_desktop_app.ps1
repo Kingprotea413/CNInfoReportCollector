@@ -9,9 +9,18 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $desktopDir = [Environment]::GetFolderPath("Desktop")
 $distDir = Join-Path $projectRoot "dist"
 $buildDir = Join-Path $projectRoot "build"
+$iconPath = Join-Path $projectRoot "assets\\app_icon.ico"
+$specPath = Join-Path $projectRoot "CNInfoReportCollector.spec"
 
 $appName = "CNInfoReportCollector"
 $desktopExePath = Join-Path $desktopDir "$appName.exe"
+
+if (-not (Test-Path $iconPath)) {
+    throw "Icon file not found at $iconPath"
+}
+if (-not (Test-Path $specPath)) {
+    throw "Spec file not found at $specPath"
+}
 
 Get-ChildItem $desktopDir | Where-Object {
     $_.Name -like "CNInfo*" -or $_.Name -like "*年报采集器*"
@@ -24,15 +33,19 @@ Get-ChildItem $desktopDir | Where-Object {
 & $python -m PyInstaller `
     --noconfirm `
     --clean `
-    --windowed `
-    --onefile `
-    --name $appName `
     --distpath $distDir `
     --workpath $buildDir `
-    --specpath $projectRoot `
-    (Join-Path $projectRoot "app.py")
+    $specPath
 
-Copy-Item (Join-Path $distDir "$appName.exe") $desktopExePath -Force
+$builtExePath = Join-Path $distDir "$appName.exe"
+$finalExePath = $builtExePath
+
+try {
+    Copy-Item $builtExePath $desktopExePath -Force
+    $finalExePath = $desktopExePath
+} catch {
+    Write-Warning "Desktop exe is in use. The newly built file is still available at $builtExePath"
+}
 
 Write-Host "Desktop app created:"
-Write-Host $desktopExePath
+Write-Host $finalExePath

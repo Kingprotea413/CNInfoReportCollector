@@ -83,6 +83,31 @@ class ServiceTests(unittest.TestCase):
         self.assertAlmostEqual(rows["权益乘数=资产总额/所有者权益"][0], 1070.0 / 570.0)
         self.assertAlmostEqual(rows["产权比率=负债总额/归属股东权益"][0], 500.0 / 550.0)
 
+    def test_build_statement_matrix_supports_unit_scaling(self) -> None:
+        records = [
+            {
+                "ENDDATE": "2024-12-31",
+                "F006N": 2_500_000.0,
+                "F025N": 6_000_000.0,
+                "F026N": 4_000_000.0,
+                "F038N": 20_000_000.0,
+                "F061N": 5_000_000.0,
+                "F070N": 15_000_000.0,
+                "F073N": 10_000_000.0,
+            }
+        ]
+
+        matrix = build_statement_matrix(records, unit_label="万元")
+        rows = {row[0]: row[1:] for row in matrix}
+
+        self.assertEqual(rows["单位"], ["万元"])
+        self.assertEqual(rows["货币资金"], [250.0])
+        self.assertEqual(rows["固定资产及清理(合计)35+36"], [600.0])
+        self.assertEqual(rows["FA&CIP净额"], [1000.0])
+        self.assertEqual(rows["资产总计"], [2000.0])
+        self.assertAlmostEqual(rows["实际资产负债率"][0], 0.25)
+        self.assertAlmostEqual(rows["权益乘数=资产总额/所有者权益"][0], 20_000_000.0 / 15_000_000.0)
+
     def test_export_statement_workbook(self) -> None:
         company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
         matrix = [
@@ -103,6 +128,7 @@ class ServiceTests(unittest.TestCase):
             sheet = workbook.active
             self.assertEqual(sheet["A1"].value, "报表日期")
             self.assertEqual(sheet["B1"].value, 20241231)
+            self.assertEqual(sheet["B2"].value, "元")
             self.assertEqual(sheet["A4"].value, "货币资金")
             self.assertEqual(sheet["C4"].value, 90.0)
             self.assertEqual(sheet["A1"].font.name, "等线")

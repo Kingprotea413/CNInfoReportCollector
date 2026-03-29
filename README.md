@@ -16,6 +16,9 @@
   - 第一列是报表项目
   - 后续列是各年度报告期
   - 行名与用户提供的参考 Excel 一致
+- 支持选择导出单位
+  - GUI 可选 `元`、`千元`、`万元`、`亿元`
+  - 命令行可通过 `--unit` 指定
 - 提供 GUI 进度条和状态提示
 - 提供命令行无界面模式，方便测试
 
@@ -41,6 +44,12 @@
 
 ```powershell
 & "$env:LocalAppData\Programs\Python\Python312\python.exe" .\app.py --headless --company 长江电力
+```
+
+指定单位示例：
+
+```powershell
+& "$env:LocalAppData\Programs\Python\Python312\python.exe" .\app.py --headless --company 长江电力 --unit 万元
 ```
 
 ## 输出说明
@@ -78,3 +87,12 @@
 ```powershell
 & "$env:LocalAppData\Programs\Python\Python312\python.exe" .\app.py --self-test-gui
 ```
+
+## GitHub Actions 自动打包
+
+仓库已包含 GitHub Actions 工作流 `/.github/workflows/build-exe.yml`：
+
+- 推送到 `main` 时自动在 GitHub 的 Windows runner 上打包 `CNInfoReportCollector.exe`
+- 提交 Pull Request 时自动验证能否成功打包
+- 可在 GitHub 的 `Actions` 页面手动触发
+- 生成的 exe 会作为 workflow artifact 上传，名称为 `CNInfoReportCollector-windows-exe`

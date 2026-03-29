@@ -13,6 +13,14 @@ from .client import CninfoClient, CompanyRecord
 
 ProgressCallback = Callable[[int, str], None]
 CACHE_DIR_NAME = ".cninfo_internal"
+UNIT_SCALE_MAP = {
+    "元": 1,
+    "千元": 1_000,
+    "万元": 10_000,
+    "亿元": 100_000_000,
+}
+DEFAULT_UNIT_LABEL = "元"
+AVAILABLE_UNIT_LABELS = tuple(UNIT_SCALE_MAP.keys())
 
 ROW_ORDER = [
     "报表日期",
@@ -229,6 +237,7 @@ class PipelineResult:
     output_path: Path
     total_records: int
     annual_records: int
+    unit_label: str
 
 
 class AnnualReportPipeline:
@@ -239,11 +248,13 @@ class AnnualReportPipeline:
         self,
         company_query: str = "长江电力",
         output_dir: str | Path = "outputs",
+        unit_label: str = DEFAULT_UNIT_LABEL,
         progress: ProgressCallback | None = None,
     ) -> PipelineResult:
         reporter = progress or (lambda _percent, _message: None)
         cache_dir = prepare_cache_dir(Path(output_dir))
         self.client.set_cache_dir(cache_dir)
+        normalized_unit_label = normalize_unit_label(unit_label)
 
         reporter(10, "正在匹配公司信息...")
         company = self.client.search_company(company_query)
@@ -255,7 +266,7 @@ class AnnualReportPipeline:
         annual_records = filter_annual_merged_records(records)
 
         reporter(80, "正在整理为模板报表格式...")
-        matrix = build_statement_matrix(annual_records)
+        matrix = build_statement_matrix(annual_records, unit_label=normalized_unit_label)
 
         reporter(90, "正在导出 Excel...")
         output_path = export_statement_workbook(company, matrix, output_dir)
@@ -266,6 +277,7 @@ class AnnualReportPipeline:
             output_path=output_path,
             total_records=len(records),
             annual_records=len(annual_records),
+            unit_label=normalized_unit_label,
         )
 
 
@@ -280,8 +292,13 @@ def filter_annual_merged_records(records: list[dict]) -> list[dict]:
     return annual
 
 
-def build_statement_matrix(records: list[dict]) -> list[list[object | None]]:
+def build_statement_matrix(
+    records: list[dict],
+    unit_label: str = DEFAULT_UNIT_LABEL,
+) -> list[list[object | None]]:
     date_keys = [str(record["ENDDATE"]).replace("-", "") for record in records]
+    normalized_unit_label = normalize_unit_label(unit_label)
+    unit_scale = UNIT_SCALE_MAP[normalized_unit_label]
     rows: list[list[object | None]] = []
 
     for label in ROW_ORDER:
@@ -289,13 +306,15 @@ def build_statement_matrix(records: list[dict]) -> list[list[object | None]]:
             rows.append([label, *[int(date_key) for date_key in date_keys]])
             continue
         if label == "单位":
-            rows.append([label, *(["元"] * len(date_keys))])
+            rows.append([label, *([normalized_unit_label] * len(date_keys))])
             continue
         if label in SECTION_ROWS or label == "":
             rows.append([label, *([None] * len(date_keys))])
             continue
 
         row_values = [compute_row_value(label, record) for record in records]
+        if label not in RATIO_ROWS and unit_scale != 1:
+            row_values = [scale_numeric_value(value, unit_scale) for value in row_values]
         rows.append([label, *row_values])
 
     return rows
@@ -368,6 +387,20 @@ def add_values(record: dict, *labels: str) -> float | None:
 
 def numeric_or_zero(value: object | None) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
+
+
+def scale_numeric_value(value: object | None, unit_scale: int) -> object | None:
+    if not isinstance(value, (int, float)):
+        return value
+    return value / unit_scale
+
+
+def normalize_unit_label(unit_label: str | None) -> str:
+    normalized = str(unit_label or DEFAULT_UNIT_LABEL).strip()
+    if normalized not in UNIT_SCALE_MAP:
+        options = "、".join(AVAILABLE_UNIT_LABELS)
+        raise ValueError(f"不支持的单位“{normalized}”，可选值：{options}")
+    return normalized
 
 
 def safe_divide(numerator: object | None, denominator: object | None) -> float | None:
