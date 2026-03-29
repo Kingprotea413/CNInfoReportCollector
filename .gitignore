@@ -1,0 +1,16 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Tooling caches
+.cache/
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+
+# Local outputs
+outputs/
