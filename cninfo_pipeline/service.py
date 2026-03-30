@@ -9,18 +9,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from .client import CninfoClient, CompanyRecord
+from .constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
 
 
 ProgressCallback = Callable[[int, str], None]
 CACHE_DIR_NAME = ".cninfo_internal"
-UNIT_SCALE_MAP = {
-    "元": 1,
-    "千元": 1_000,
-    "万元": 10_000,
-    "亿元": 100_000_000,
-}
-DEFAULT_UNIT_LABEL = "元"
-AVAILABLE_UNIT_LABELS = tuple(UNIT_SCALE_MAP.keys())
 
 ROW_ORDER = [
     "报表日期",

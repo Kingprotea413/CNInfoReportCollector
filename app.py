@@ -4,18 +4,34 @@ import argparse
 import json
 import os
 import queue
+import sys
 import threading
+import traceback
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from cninfo_pipeline import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL, AnnualReportPipeline
+from cninfo_pipeline.constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL
 
 
 APP_ID = "CNInfoReportCollector"
-CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / APP_ID
-CONFIG_PATH = CONFIG_DIR / "config.json"
+LOG_FILE_NAME = "last_error.log"
 DEFAULT_OUTPUT_DIR = Path.home() / "Desktop" / "财报输出"
+
+
+def resolve_config_dir() -> Path:
+    if sys.platform == "win32":
+        base_dir = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    elif sys.platform == "darwin":
+        base_dir = Path.home() / "Library" / "Application Support"
+    else:
+        base_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base_dir / APP_ID
+
+
+CONFIG_DIR = resolve_config_dir()
+CONFIG_PATH = CONFIG_DIR / "config.json"
+LOG_PATH = CONFIG_DIR / LOG_FILE_NAME
 
 
 def resolve_unit_label(candidate: str | None) -> str:
@@ -36,10 +52,25 @@ def save_settings(settings: dict[str, str]) -> None:
     CONFIG_PATH.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def write_error_log(context: str) -> Path:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_PATH.write_text(context, encoding="utf-8")
+    return LOG_PATH
+
+
+def format_exception_details(exc: BaseException) -> str:
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+def build_error_message(exc: BaseException) -> str:
+    log_path = write_error_log(format_exception_details(exc))
+    return f"{exc}\n\n详细日志：{log_path}"
+
+
 class AppWindow:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.pipeline = AnnualReportPipeline()
+        self.pipeline = None
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.settings = load_settings()
@@ -55,7 +86,7 @@ class AppWindow:
 
         ttk.Label(
             container,
-            text="输入公司名称或证券代码，采集多年年报资产负债表并导出 Excel。",
+            text="输入公司名称或证券代码，采集多年年报资产负债表并导出到 Excel。",
         ).pack(anchor="w")
 
         company_row = ttk.Frame(container)
@@ -107,6 +138,13 @@ class AppWindow:
 
         self.root.after(150, self.poll_events)
 
+    def get_pipeline(self):
+        if self.pipeline is None:
+            from cninfo_pipeline.service import AnnualReportPipeline
+
+            self.pipeline = AnnualReportPipeline()
+        return self.pipeline
+
     def on_unit_selected(self, _event: object | None = None) -> None:
         self.unit_label = resolve_unit_label(self.unit_var.get())
         self.unit_var.set(self.unit_label)
@@ -155,7 +193,7 @@ class AppWindow:
 
     def _run_pipeline(self, company: str, output_dir: str, unit_label: str) -> None:
         try:
-            result = self.pipeline.run(
+            result = self.get_pipeline().run(
                 company_query=company,
                 output_dir=output_dir,
                 unit_label=unit_label,
@@ -163,7 +201,7 @@ class AppWindow:
             )
             self.events.put(("success", result))
         except Exception as exc:  # noqa: BLE001
-            self.events.put(("error", str(exc)))
+            self.events.put(("error", build_error_message(exc)))
 
     def _publish_progress(self, percent: int, message: str) -> None:
         self.events.put(("progress", (percent, message)))
@@ -182,12 +220,8 @@ class AppWindow:
             elif event_type == "success":
                 result = payload
                 self.progress["value"] = 100
-                self.status_var.set(
-                    f"{result.company.secname} 采集完成，共导出 {result.annual_records} 份年报。"
-                )
-                self.result_var.set(
-                    f"导出文件：{result.output_path.resolve()}（单位：{result.unit_label}）"
-                )
+                self.status_var.set(f"{result.company.secname} 采集完成，共导出 {result.annual_records} 份年报。")
+                self.result_var.set(f"导出文件：{result.output_path.resolve()}（单位：{result.unit_label}）")
                 messagebox.showinfo("采集完成", f"Excel 已生成：\n{result.output_path.resolve()}")
                 self.start_button.config(state="normal")
                 self.entry.config(state="normal")
@@ -203,6 +237,8 @@ class AppWindow:
 
 
 def run_headless(company: str, output_dir: str, unit_label: str) -> int:
+    from cninfo_pipeline.service import AnnualReportPipeline
+
     pipeline = AnnualReportPipeline()
 
     def reporter(percent: int, message: str) -> None:
@@ -225,7 +261,7 @@ def run_headless(company: str, output_dir: str, unit_label: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="巨潮资讯年报资产负债表采集器")
     parser.add_argument("--company", default="长江电力", help="公司名称或证券代码")
-    parser.add_argument("--output-dir", default="outputs", help="Excel 输出目录")
+    parser.add_argument("--output-dir", default="outputs", help="Excel 导出目录")
     parser.add_argument(
         "--unit",
         default=DEFAULT_UNIT_LABEL,
@@ -242,16 +278,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = build_parser().parse_args()
-    if args.headless:
-        return run_headless(args.company, args.output_dir, args.unit)
+    try:
+        args = build_parser().parse_args()
+        if args.headless:
+            return run_headless(args.company, args.output_dir, args.unit)
 
-    root = tk.Tk()
-    AppWindow(root)
-    if args.self_test_gui:
-        root.after(1200, root.destroy)
-    root.mainloop()
-    return 0
+        root = tk.Tk()
+        AppWindow(root)
+        if args.self_test_gui:
+            root.after(1200, root.destroy)
+        root.mainloop()
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        details = build_error_message(exc)
+        try:
+            hidden_root = tk.Tk()
+            hidden_root.withdraw()
+            messagebox.showerror("程序启动失败", details)
+            hidden_root.destroy()
+        except Exception:
+            print(details, file=os.sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

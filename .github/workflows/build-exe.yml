@@ -45,8 +45,8 @@ jobs:
             dist/CNInfoReportCollector-windows.zip
           if-no-files-found: error
 
-  build-macos:
-    runs-on: macos-latest
+  build-macos-arm64:
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -62,17 +62,49 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller
 
-      - name: Build macOS app
+      - name: Build macOS arm64 app
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --distpath dist --workpath build --name CNInfoReportCollector app.py
+          python -m PyInstaller --noconfirm --clean --windowed --distpath dist --workpath build --name CNInfoReportCollector --target-arch arm64 --icon assets/app_icon.icns --osx-bundle-identifier com.kingprotea.cninforeportcollector --collect-all quickjs app.py
 
-      - name: Create macOS ZIP
+      - name: Create macOS arm64 ZIP
         run: |
-          ditto -c -k --sequesterRsrc --keepParent dist/CNInfoReportCollector.app dist/CNInfoReportCollector-macos.zip
+          ditto -c -k --sequesterRsrc --keepParent dist/CNInfoReportCollector.app dist/CNInfoReportCollector-macos-arm64.zip
 
-      - name: Upload macOS artifact
+      - name: Upload macOS arm64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CNInfoReportCollector-macos
-          path: dist/CNInfoReportCollector-macos.zip
+          name: CNInfoReportCollector-macos-arm64
+          path: dist/CNInfoReportCollector-macos-arm64.zip
+          if-no-files-found: error
+
+  build-macos-x64:
+    runs-on: macos-15-intel
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build macOS x64 app
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --distpath dist --workpath build --name CNInfoReportCollector --target-arch x86_64 --icon assets/app_icon.icns --osx-bundle-identifier com.kingprotea.cninforeportcollector --collect-all quickjs app.py
+
+      - name: Create macOS x64 ZIP
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent dist/CNInfoReportCollector.app dist/CNInfoReportCollector-macos-x64.zip
+
+      - name: Upload macOS x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CNInfoReportCollector-macos-x64
+          path: dist/CNInfoReportCollector-macos-x64.zip
           if-no-files-found: error
