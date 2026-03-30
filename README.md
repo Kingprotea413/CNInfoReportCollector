@@ -96,3 +96,22 @@
 - 提交 Pull Request 时自动验证能否成功打包
 - 可在 GitHub 的 `Actions` 页面手动触发
 - 生成的 exe 会作为 workflow artifact 上传，名称为 `CNInfoReportCollector-windows-exe`
+
+## GitHub Release 发布
+
+仓库还包含自动发布工作流 `/.github/workflows/release.yml`：
+
+- 当你推送形如 `v0.1.0`、`v1.2.3` 的 tag 时，会自动创建 GitHub Release
+- Release 会自动附带：
+  - `CNInfoReportCollector.exe`
+  - `CNInfoReportCollector-<tag>-windows.zip`
+- Release 说明会由 GitHub 自动生成
+
+本地发布示例：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+推送完成后，到 GitHub 仓库的 `Releases` 页面即可看到新版本。
