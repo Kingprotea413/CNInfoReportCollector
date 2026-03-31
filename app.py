@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 import queue
-import sys
 import threading
 import traceback
 import tkinter as tk
@@ -12,24 +11,12 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from cninfo_pipeline.constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL
+from cninfo_pipeline.paths import ensure_writable_dir, resolve_app_data_dir, resolve_default_output_dir
 
 
-APP_ID = "CNInfoReportCollector"
 LOG_FILE_NAME = "last_error.log"
-DEFAULT_OUTPUT_DIR = Path.home() / "Desktop" / "财报输出"
-
-
-def resolve_config_dir() -> Path:
-    if sys.platform == "win32":
-        base_dir = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    elif sys.platform == "darwin":
-        base_dir = Path.home() / "Library" / "Application Support"
-    else:
-        base_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base_dir / APP_ID
-
-
-CONFIG_DIR = resolve_config_dir()
+DEFAULT_OUTPUT_DIR = resolve_default_output_dir()
+CONFIG_DIR = resolve_app_data_dir()
 CONFIG_PATH = CONFIG_DIR / "config.json"
 LOG_PATH = CONFIG_DIR / LOG_FILE_NAME
 
@@ -48,12 +35,12 @@ def load_settings() -> dict[str, str]:
 
 
 def save_settings(settings: dict[str, str]) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_writable_dir(CONFIG_DIR)
     CONFIG_PATH.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_error_log(context: str) -> Path:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_writable_dir(CONFIG_DIR)
     LOG_PATH.write_text(context, encoding="utf-8")
     return LOG_PATH
 
@@ -74,7 +61,7 @@ class AppWindow:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.settings = load_settings()
-        self.output_dir = Path(self.settings.get("output_dir", str(DEFAULT_OUTPUT_DIR)))
+        self.output_dir = ensure_writable_dir(self.settings.get("output_dir", str(DEFAULT_OUTPUT_DIR)))
         self.unit_label = resolve_unit_label(self.settings.get("unit_label"))
 
         self.root.title("巨潮年报资产负债表采集器")
@@ -161,7 +148,11 @@ class AppWindow:
         if not selected:
             return
 
-        self.output_dir = Path(selected)
+        try:
+            self.output_dir = ensure_writable_dir(Path(selected).expanduser())
+        except OSError as exc:
+            messagebox.showerror("目录不可写", f"无法写入所选目录：{selected}\n\n{exc}")
+            return
         self.output_dir_var.set(str(self.output_dir))
         self.result_var.set(f"默认保存目录：{self.output_dir}")
         self.settings["output_dir"] = str(self.output_dir)
@@ -175,10 +166,16 @@ class AppWindow:
         if not company:
             messagebox.showerror("输入错误", "请输入公司名称或证券代码。")
             return
+        try:
+            self.output_dir = ensure_writable_dir(self.output_dir)
+        except OSError as exc:
+            messagebox.showerror("目录不可写", f"无法写入导出目录：{self.output_dir}\n\n{exc}")
+            return
 
         self.progress["value"] = 0
         self.status_var.set("任务已启动。")
         self.on_unit_selected()
+        self.output_dir_var.set(str(self.output_dir))
         self.result_var.set(f"正在保存到：{self.output_dir}（单位：{self.unit_label}）")
         self.start_button.config(state="disabled")
         self.entry.config(state="disabled")
@@ -261,7 +258,7 @@ def run_headless(company: str, output_dir: str, unit_label: str) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="巨潮资讯年报资产负债表采集器")
     parser.add_argument("--company", default="长江电力", help="公司名称或证券代码")
-    parser.add_argument("--output-dir", default="outputs", help="Excel 导出目录")
+    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Excel 导出目录")
     parser.add_argument(
         "--unit",
         default=DEFAULT_UNIT_LABEL,

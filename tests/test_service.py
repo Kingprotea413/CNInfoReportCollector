@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 
@@ -150,6 +151,19 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(cache_dir.exists())
             self.assertFalse(legacy_cache.exists())
             self.assertTrue((cache_dir / "companies.json").exists())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_prepare_cache_dir_defaults_to_app_cache_dir(self) -> None:
+        temp_dir = Path("test_artifacts")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            expected = temp_dir / "app-cache"
+            with patch("cninfo_pipeline.service.resolve_default_cache_dir", return_value=expected):
+                cache_dir = prepare_cache_dir()
+
+            self.assertEqual(cache_dir, expected)
+            self.assertTrue(cache_dir.exists())
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

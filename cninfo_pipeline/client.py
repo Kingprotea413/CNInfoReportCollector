@@ -12,6 +12,8 @@ from typing import Any
 
 import quickjs
 
+from .paths import ensure_writable_dir, resolve_default_cache_dir
+
 
 BASE_URL = "http://webapi.cninfo.com.cn"
 REFERER = "http://webapi.cninfo.com.cn/shgs/company4.html"
@@ -110,12 +112,12 @@ function btoa(input) {
 
 
 class CninfoClient:
-    def __init__(self, cache_dir: str | Path = ".cache") -> None:
+    def __init__(self, cache_dir: str | Path | None = None) -> None:
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        self.set_cache_dir(cache_dir)
+        self.set_cache_dir(cache_dir or resolve_default_cache_dir())
 
     def set_cache_dir(self, cache_dir: str | Path) -> None:
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = ensure_writable_dir(cache_dir)
         ensure_cache_dir(self.cache_dir)
         self.enc_key_provider = EncKeyProvider(self.opener, self.cache_dir)
         self._company_cache_path = self.cache_dir / "companies.json"

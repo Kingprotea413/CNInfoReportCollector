@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font
 
 from .client import CninfoClient, CompanyRecord
 from .constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
+from .paths import ensure_writable_dir, resolve_default_cache_dir, resolve_default_output_dir
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -240,14 +241,15 @@ class AnnualReportPipeline:
     def run(
         self,
         company_query: str = "长江电力",
-        output_dir: str | Path = "outputs",
+        output_dir: str | Path | None = None,
         unit_label: str = DEFAULT_UNIT_LABEL,
         progress: ProgressCallback | None = None,
     ) -> PipelineResult:
         reporter = progress or (lambda _percent, _message: None)
-        cache_dir = prepare_cache_dir(Path(output_dir))
+        cache_dir = prepare_cache_dir()
         self.client.set_cache_dir(cache_dir)
         normalized_unit_label = normalize_unit_label(unit_label)
+        resolved_output_dir = output_dir or resolve_default_output_dir()
 
         reporter(10, "正在匹配公司信息...")
         company = self.client.search_company(company_query)
@@ -262,7 +264,7 @@ class AnnualReportPipeline:
         matrix = build_statement_matrix(annual_records, unit_label=normalized_unit_label)
 
         reporter(90, "正在导出 Excel...")
-        output_path = export_statement_workbook(company, matrix, output_dir)
+        output_path = export_statement_workbook(company, matrix, resolved_output_dir)
 
         reporter(100, f"完成，已导出 {len(annual_records)} 份年报到 {output_path.name}")
         return PipelineResult(
@@ -404,16 +406,20 @@ def safe_divide(numerator: object | None, denominator: object | None) -> float |
     return numerator / denominator
 
 
-def prepare_cache_dir(output_dir: Path) -> Path:
-    cache_dir = output_dir / CACHE_DIR_NAME
-    legacy_cache_dir = output_dir / ".cache"
+def prepare_cache_dir(output_dir: Path | None = None) -> Path:
+    if output_dir is None:
+        cache_dir = resolve_default_cache_dir()
+        legacy_cache_dir = Path(".cache")
+    else:
+        cache_dir = output_dir / CACHE_DIR_NAME
+        legacy_cache_dir = output_dir / ".cache"
 
     if legacy_cache_dir.exists() and not cache_dir.exists():
         shutil.move(str(legacy_cache_dir), str(cache_dir))
     elif legacy_cache_dir.exists() and cache_dir.exists():
         shutil.rmtree(legacy_cache_dir, ignore_errors=True)
 
-    return cache_dir
+    return ensure_writable_dir(cache_dir)
 
 
 def export_statement_workbook(
@@ -421,8 +427,7 @@ def export_statement_workbook(
     matrix: list[list[object | None]],
     output_dir: str | Path,
 ) -> Path:
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    output_path = ensure_writable_dir(output_dir)
 
     workbook = Workbook()
     sheet = workbook.active

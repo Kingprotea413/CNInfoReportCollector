@@ -52,7 +52,10 @@
 ## 输出说明
 
 - GUI 模式下，Excel 会保存到窗口中选择的目录
-- 命令行模式下，默认输出目录是 `outputs/`，也可以通过 `--output-dir` 指定
+- 默认导出目录会落在应用私有目录，避免 macOS 对当前目录或桌面的写权限限制
+  - macOS: `~/Library/Application Support/CNInfoReportCollector/exports`
+  - Windows: `%LOCALAPPDATA%\CNInfoReportCollector\exports`
+- 命令行模式下，也可以通过 `--output-dir` 指定其他目录
 - 导出文件名格式：
 
 ```text
@@ -110,6 +113,7 @@ git push origin v0.1.0
 - Intel 芯片的 Mac 使用 `macos-x64.zip`
 - 当前 macOS 构建未签名、未 notarize
 - 第一次打开时，可能需要右键选择“打开”，或在系统设置里手动放行
+- 内部缓存和配置默认写入应用私有目录，不再依赖当前工作目录
 - 如果运行失败，错误日志会写到：
   - macOS: `~/Library/Application Support/CNInfoReportCollector/last_error.log`
   - Windows: `%LOCALAPPDATA%\CNInfoReportCollector\last_error.log`
