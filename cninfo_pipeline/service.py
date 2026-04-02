@@ -232,6 +232,8 @@ class PipelineResult:
     total_records: int
     annual_records: int
     unit_label: str
+    template_id: str
+    template_name: str
 
 
 class AnnualReportPipeline:
@@ -243,6 +245,7 @@ class AnnualReportPipeline:
         company_query: str = "长江电力",
         output_dir: str | Path | None = None,
         unit_label: str = DEFAULT_UNIT_LABEL,
+        template_id: str | None = None,
         progress: ProgressCallback | None = None,
     ) -> PipelineResult:
         reporter = progress or (lambda _percent, _message: None)
@@ -250,29 +253,44 @@ class AnnualReportPipeline:
         self.client.set_cache_dir(cache_dir)
         normalized_unit_label = normalize_unit_label(unit_label)
         resolved_output_dir = output_dir or resolve_default_output_dir()
+        from .template_export import export_template_workbook
+        from .template_registry import resolve_template
 
         reporter(10, "正在匹配公司信息...")
         company = self.client.search_company(company_query)
+        template = resolve_template(template_id)
 
-        reporter(35, f"正在抓取 {company.secname} 的资产负债表...")
-        records = self.client.fetch_balance_sheet(company.seccode)
+        reporter(20, f"正在加载模板：{template.display_name}...")
+        reporter(30, f"正在抓取 {company.secname} 的资产负债表...")
+        balance_records = self.client.fetch_balance_sheet(company.seccode)
 
-        reporter(60, "正在筛选年报（仅保留 12-31 合并本期）...")
-        annual_records = filter_annual_merged_records(records)
+        reporter(45, f"正在抓取 {company.secname} 的利润表...")
+        income_records = self.client.fetch_income_statement(company.seccode)
 
-        reporter(80, "正在整理为模板报表格式...")
-        matrix = build_statement_matrix(annual_records, unit_label=normalized_unit_label)
+        reporter(60, f"正在抓取 {company.secname} 的现金流量表...")
+        cash_flow_records = self.client.fetch_cash_flow_statement(company.seccode)
 
-        reporter(90, "正在导出 Excel...")
-        output_path = export_statement_workbook(company, matrix, resolved_output_dir)
+        reporter(80, "正在按模板生成 Excel...")
+        output_path = export_template_workbook(
+            company=company,
+            balance_records=balance_records,
+            income_records=income_records,
+            cash_flow_records=cash_flow_records,
+            output_dir=resolved_output_dir,
+            unit_label=normalized_unit_label,
+            template_id=template.template_id,
+        )
+        annual_records = filter_annual_merged_records(balance_records)
 
         reporter(100, f"完成，已导出 {len(annual_records)} 份年报到 {output_path.name}")
         return PipelineResult(
             company=company,
             output_path=output_path,
-            total_records=len(records),
+            total_records=len(balance_records),
             annual_records=len(annual_records),
             unit_label=normalized_unit_label,
+            template_id=template.template_id,
+            template_name=template.display_name,
         )
 
 

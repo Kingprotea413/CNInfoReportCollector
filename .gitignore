@@ -18,3 +18,4 @@ outputs/
 validation_output/
 test_artifacts/
 .cninfo_internal/
+tmp_exports/

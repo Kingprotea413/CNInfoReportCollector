@@ -76,7 +76,36 @@ jobs:
 
       - name: Build macOS arm64 app
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --distpath dist --workpath build --name CNInfoReportCollector --target-arch arm64 --icon assets/app_icon.icns --osx-bundle-identifier com.kingprotea.cninforeportcollector --collect-all quickjs app.py
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from PyInstaller.__main__ import run
+          from cninfo_pipeline.template_registry import template_data_files
+
+          args = [
+              "--noconfirm",
+              "--clean",
+              "--windowed",
+              "--distpath",
+              "dist",
+              "--workpath",
+              "build",
+              "--name",
+              "CNInfoReportCollector",
+              "--target-arch",
+              "arm64",
+              "--icon",
+              "assets/app_icon.icns",
+              "--osx-bundle-identifier",
+              "com.kingprotea.cninforeportcollector",
+              "--collect-all",
+              "quickjs",
+          ]
+          for src, dest in template_data_files(Path.cwd()):
+              args.extend(["--add-data", f"{src}{os.pathsep}{dest}"])
+          args.append("app.py")
+          run(args)
+          PY
 
       - name: Create macOS arm64 ZIP
         run: |
@@ -109,7 +138,36 @@ jobs:
 
       - name: Build macOS x64 app
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --distpath dist --workpath build --name CNInfoReportCollector --target-arch x86_64 --icon assets/app_icon.icns --osx-bundle-identifier com.kingprotea.cninforeportcollector --collect-all quickjs app.py
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from PyInstaller.__main__ import run
+          from cninfo_pipeline.template_registry import template_data_files
+
+          args = [
+              "--noconfirm",
+              "--clean",
+              "--windowed",
+              "--distpath",
+              "dist",
+              "--workpath",
+              "build",
+              "--name",
+              "CNInfoReportCollector",
+              "--target-arch",
+              "x86_64",
+              "--icon",
+              "assets/app_icon.icns",
+              "--osx-bundle-identifier",
+              "com.kingprotea.cninforeportcollector",
+              "--collect-all",
+              "quickjs",
+          ]
+          for src, dest in template_data_files(Path.cwd()):
+              args.extend(["--add-data", f"{src}{os.pathsep}{dest}"])
+          args.append("app.py")
+          run(args)
+          PY
 
       - name: Create macOS x64 ZIP
         run: |

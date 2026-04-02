@@ -174,6 +174,14 @@ class CninfoClient:
         payload = self._request_json("/api/stock/p_stock2300", {"scode": seccode})
         return list(payload.get("records", []))
 
+    def fetch_income_statement(self, seccode: str) -> list[dict[str, Any]]:
+        payload = self._request_json("/api/stock/p_stock2301", {"scode": seccode})
+        return list(payload.get("records", []))
+
+    def fetch_cash_flow_statement(self, seccode: str) -> list[dict[str, Any]]:
+        payload = self._request_json("/api/stock/p_stock2302", {"scode": seccode})
+        return list(payload.get("records", []))
+
     def _request_json(
         self,
         path: str,

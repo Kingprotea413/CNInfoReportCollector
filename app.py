@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from cninfo_pipeline.constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL
 from cninfo_pipeline.paths import ensure_writable_dir, resolve_app_data_dir, resolve_default_output_dir
+from cninfo_pipeline.template_registry import default_template_id, discover_templates, resolve_template
 
 
 LOG_FILE_NAME = "last_error.log"
@@ -23,6 +24,16 @@ LOG_PATH = CONFIG_DIR / LOG_FILE_NAME
 
 def resolve_unit_label(candidate: str | None) -> str:
     return candidate if candidate in AVAILABLE_UNIT_LABELS else DEFAULT_UNIT_LABEL
+
+
+def resolve_template_id(candidate: str | None) -> str:
+    template_ids = {template.template_id for template in discover_templates()}
+    fallback = default_template_id()
+    if candidate in template_ids:
+        return str(candidate)
+    if fallback:
+        return fallback
+    raise FileNotFoundError("未找到可用的 Excel 模板，请把模板文件放到 cninfo_pipeline 目录。")
 
 
 def load_settings() -> dict[str, str]:
@@ -61,8 +72,16 @@ class AppWindow:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
         self.settings = load_settings()
+        self.templates = discover_templates()
+        self.template_display_to_id = {
+            template.display_name: template.template_id for template in self.templates
+        }
+        self.template_id_to_display = {
+            template.template_id: template.display_name for template in self.templates
+        }
         self.output_dir = ensure_writable_dir(self.settings.get("output_dir", str(DEFAULT_OUTPUT_DIR)))
         self.unit_label = resolve_unit_label(self.settings.get("unit_label"))
+        self.template_id = resolve_template_id(self.settings.get("template_id"))
 
         self.root.title("巨潮年报资产负债表采集器")
         self.root.geometry("680x360")
@@ -111,6 +130,21 @@ class AppWindow:
         self.unit_combobox.pack(side="left", padx=(10, 0))
         self.unit_combobox.bind("<<ComboboxSelected>>", self.on_unit_selected)
 
+        template_row = ttk.Frame(container)
+        template_row.pack(fill="x", pady=(2, 10))
+
+        ttk.Label(template_row, text="导出模板").pack(side="left")
+        self.template_var = tk.StringVar(value=self.template_id_to_display[self.template_id])
+        self.template_combobox = ttk.Combobox(
+            template_row,
+            textvariable=self.template_var,
+            state="readonly",
+            values=[template.display_name for template in self.templates],
+            width=42,
+        )
+        self.template_combobox.pack(side="left", padx=(10, 0))
+        self.template_combobox.bind("<<ComboboxSelected>>", self.on_template_selected)
+
         self.progress = ttk.Progressbar(container, length=620, mode="determinate", maximum=100)
         self.progress.pack(fill="x", pady=(14, 8))
 
@@ -136,6 +170,17 @@ class AppWindow:
         self.unit_label = resolve_unit_label(self.unit_var.get())
         self.unit_var.set(self.unit_label)
         self.settings["unit_label"] = self.unit_label
+        save_settings(self.settings)
+
+    def on_template_selected(self, _event: object | None = None) -> None:
+        display_name = self.template_var.get()
+        template_id = self.template_display_to_id.get(display_name)
+        if template_id is None:
+            template_id = resolve_template_id(None)
+            display_name = self.template_id_to_display[template_id]
+        self.template_id = template_id
+        self.template_var.set(display_name)
+        self.settings["template_id"] = self.template_id
         save_settings(self.settings)
 
     def choose_output_dir(self) -> None:
@@ -175,25 +220,30 @@ class AppWindow:
         self.progress["value"] = 0
         self.status_var.set("任务已启动。")
         self.on_unit_selected()
+        self.on_template_selected()
         self.output_dir_var.set(str(self.output_dir))
-        self.result_var.set(f"正在保存到：{self.output_dir}（单位：{self.unit_label}）")
+        self.result_var.set(
+            f"正在保存到：{self.output_dir}（单位：{self.unit_label}，模板：{resolve_template(self.template_id).display_name}）"
+        )
         self.start_button.config(state="disabled")
         self.entry.config(state="disabled")
         self.unit_combobox.config(state="disabled")
+        self.template_combobox.config(state="disabled")
 
         self.worker = threading.Thread(
             target=self._run_pipeline,
-            args=(company, str(self.output_dir), self.unit_label),
+            args=(company, str(self.output_dir), self.unit_label, self.template_id),
             daemon=True,
         )
         self.worker.start()
 
-    def _run_pipeline(self, company: str, output_dir: str, unit_label: str) -> None:
+    def _run_pipeline(self, company: str, output_dir: str, unit_label: str, template_id: str) -> None:
         try:
             result = self.get_pipeline().run(
                 company_query=company,
                 output_dir=output_dir,
                 unit_label=unit_label,
+                template_id=template_id,
                 progress=self._publish_progress,
             )
             self.events.put(("success", result))
@@ -218,22 +268,26 @@ class AppWindow:
                 result = payload
                 self.progress["value"] = 100
                 self.status_var.set(f"{result.company.secname} 采集完成，共导出 {result.annual_records} 份年报。")
-                self.result_var.set(f"导出文件：{result.output_path.resolve()}（单位：{result.unit_label}）")
+                self.result_var.set(
+                    f"导出文件：{result.output_path.resolve()}（单位：{result.unit_label}，模板：{result.template_name}）"
+                )
                 messagebox.showinfo("采集完成", f"Excel 已生成：\n{result.output_path.resolve()}")
                 self.start_button.config(state="normal")
                 self.entry.config(state="normal")
                 self.unit_combobox.config(state="readonly")
+                self.template_combobox.config(state="readonly")
             elif event_type == "error":
                 self.status_var.set("采集失败。")
                 messagebox.showerror("采集失败", str(payload))
                 self.start_button.config(state="normal")
                 self.entry.config(state="normal")
                 self.unit_combobox.config(state="readonly")
+                self.template_combobox.config(state="readonly")
 
         self.root.after(150, self.poll_events)
 
 
-def run_headless(company: str, output_dir: str, unit_label: str) -> int:
+def run_headless(company: str, output_dir: str, unit_label: str, template_id: str | None) -> int:
     from cninfo_pipeline.service import AnnualReportPipeline
 
     pipeline = AnnualReportPipeline()
@@ -245,12 +299,14 @@ def run_headless(company: str, output_dir: str, unit_label: str) -> int:
         company_query=company,
         output_dir=output_dir,
         unit_label=unit_label,
+        template_id=template_id,
         progress=reporter,
     )
     print(
         "导出完成："
         f"{result.company.secname}({result.company.seccode}) -> {result.output_path.resolve()}"
         f" [单位：{result.unit_label}]"
+        f" [模板：{result.template_name}]"
     )
     return 0
 
@@ -265,6 +321,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=AVAILABLE_UNIT_LABELS,
         help="导出单位",
     )
+    parser.add_argument(
+        "--template",
+        default=default_template_id(),
+        choices=tuple(template.template_id for template in discover_templates()),
+        help="导出模板 ID",
+    )
     parser.add_argument("--headless", action="store_true", help="不启动窗口，直接命令行执行")
     parser.add_argument(
         "--self-test-gui",
@@ -278,7 +340,7 @@ def main() -> int:
     try:
         args = build_parser().parse_args()
         if args.headless:
-            return run_headless(args.company, args.output_dir, args.unit)
+            return run_headless(args.company, args.output_dir, args.unit, args.template)
 
         root = tk.Tk()
         AppWindow(root)

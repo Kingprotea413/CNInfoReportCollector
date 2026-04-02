@@ -2,14 +2,17 @@
 
 from pathlib import Path
 
+from cninfo_pipeline.template_registry import template_data_files
+
 project_root = Path(globals().get("__file__", "CNInfoReportCollector.spec")).resolve().parent
 icon_path = project_root / "assets" / "app_icon.ico"
+template_datas = template_data_files(project_root)
 
 a = Analysis(
     [str(project_root / 'app.py')],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=template_datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

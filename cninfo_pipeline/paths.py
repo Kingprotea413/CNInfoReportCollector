@@ -26,6 +26,16 @@ def resolve_default_output_dir() -> Path:
     return resolve_app_data_dir() / "exports"
 
 
+def resolve_project_root() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
+def resolve_asset_path(relative_path: str | Path) -> Path:
+    return resolve_project_root() / Path(relative_path)
+
+
 def ensure_writable_dir(path: str | Path) -> Path:
     resolved = Path(path).expanduser()
     resolved.mkdir(parents=True, exist_ok=True)
