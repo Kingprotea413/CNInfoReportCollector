@@ -32,6 +32,11 @@ SECTION_FILL_BY_STATEMENT = {
 SECTION_FONT = Font(bold=True, color="1F2937")
 MISSING_REASON_SHEET = "空白项说明"
 SEPARATOR_SIDE = Side(style="medium", color="000000")
+STATEMENT_SHEET_SUFFIX = {
+    "balance": "资产负债表",
+    "income": "利润表",
+    "cash": "现金流量表",
+}
 SECTION_LABEL_EXACT = {
     "资产",
     "负债",
@@ -500,6 +505,7 @@ def export_template_workbook(
         if statement_type is None:
             continue
 
+        sheet.title = build_export_sheet_title(company.secname, STATEMENT_SHEET_SUFFIX[statement_type])
         base_font = detect_sheet_base_font(sheet)
         records = {
             "balance": balance_periods,
@@ -527,7 +533,7 @@ def export_template_workbook(
         apply_column_separators(sheet)
         auto_adjust_sheet_widths(sheet, layout)
 
-    append_missing_reason_sheet(workbook, missing_rows)
+    append_missing_reason_sheet(workbook, missing_rows, company.secname)
 
     latest_year = balance_periods[0][0][:4] if balance_periods else "latest"
     workbook_path = output_path / f"{company.secname}_{template.template_id}_{latest_year}YE.xlsx"
@@ -560,6 +566,10 @@ def detect_statement_type(sheet_title: str) -> str | None:
     if "现金流量表" in normalized:
         return "cash"
     return None
+
+
+def build_export_sheet_title(company_name: str, suffix: str) -> str:
+    return f"{company_name}{suffix}"[:31]
 
 
 def prepare_sheet_layout(sheet, unit_label: str, record_count: int) -> SheetLayout:
@@ -840,11 +850,11 @@ def build_missing_row_explanation(
     )
 
 
-def append_missing_reason_sheet(workbook, explanations: list[MissingRowExplanation]) -> None:
+def append_missing_reason_sheet(workbook, explanations: list[MissingRowExplanation], company_name: str) -> None:
     if not explanations:
         return
 
-    sheet = workbook.create_sheet(MISSING_REASON_SHEET)
+    sheet = workbook.create_sheet(build_export_sheet_title(company_name, MISSING_REASON_SHEET))
     headers = ("工作表", "行号", "项目", "原因分类", "说明")
     for column, header in enumerate(headers, start=1):
         cell = sheet.cell(1, column, header)

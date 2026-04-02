@@ -19,6 +19,7 @@ from cninfo_pipeline.service import (
 from cninfo_pipeline.template_export import (
     MISSING_REASON_SHEET,
     SECTION_FILL_BY_STATEMENT,
+    build_export_sheet_title,
     export_template_workbook,
     is_section_label,
 )
@@ -297,10 +298,17 @@ class ServiceTests(unittest.TestCase):
 
             workbook = load_workbook(workbook_path, data_only=False)
             template_workbook = load_workbook(template.path, data_only=False)
-            self.assertEqual(workbook.sheetnames[:-1], template_workbook.sheetnames)
-            self.assertEqual(workbook.sheetnames[-1], MISSING_REASON_SHEET)
+            self.assertEqual(
+                workbook.sheetnames[:-1],
+                [
+                    build_export_sheet_title(company.secname, "资产负债表"),
+                    build_export_sheet_title(company.secname, "利润表"),
+                    build_export_sheet_title(company.secname, "现金流量表"),
+                ],
+            )
+            self.assertEqual(workbook.sheetnames[-1], build_export_sheet_title(company.secname, MISSING_REASON_SHEET))
 
-            balance_sheet = workbook[template_workbook.sheetnames[0]]
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
             self.assertEqual(balance_sheet["A1"].value, "项目（单位：万元）")
             self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(balance_sheet["D1"].value), "2023-12-31")
@@ -315,12 +323,12 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(balance_sheet.cell(cash_row, 3).value, 1000)
             self.assertEqual(balance_sheet.cell(cash_row, 4).value, 800)
 
-            income_sheet = workbook[template_workbook.sheetnames[1]]
+            income_sheet = workbook[build_export_sheet_title(company.secname, "利润表")]
             self.assertEqual(income_sheet["A1"].value, "项目（单位：万元）")
             self.assertEqual(iso_date(income_sheet["B1"].value), "2024-12-31")
             self.assertEqual(iso_date(income_sheet["C1"].value), "2023-12-31")
 
-            cash_sheet = workbook[template_workbook.sheetnames[2]]
+            cash_sheet = workbook[build_export_sheet_title(company.secname, "现金流量表")]
             self.assertEqual(cash_sheet["A1"].value, "项目（单位：万元）")
             self.assertEqual(iso_date(cash_sheet["B1"].value), "2024-12-31")
             self.assertEqual(iso_date(cash_sheet["C1"].value), "2023-12-31")
@@ -532,10 +540,10 @@ class ServiceTests(unittest.TestCase):
                 )
 
             workbook = load_workbook(workbook_path, data_only=False)
-            balance_sheet = workbook["测试银行资产负债表"]
-            income_sheet = workbook["测试银行利润表"]
-            cash_sheet = workbook["测试银行现金流量表"]
-            reason_sheet = workbook[MISSING_REASON_SHEET]
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            income_sheet = workbook[build_export_sheet_title(company.secname, "利润表")]
+            cash_sheet = workbook[build_export_sheet_title(company.secname, "现金流量表")]
+            reason_sheet = workbook[build_export_sheet_title(company.secname, MISSING_REASON_SHEET)]
 
             self.assertEqual(balance_sheet["A1"].value, "项目（单位：万元）")
             self.assertEqual(iso_date(balance_sheet["B1"].value), "2025-12-31")
@@ -645,7 +653,7 @@ class ServiceTests(unittest.TestCase):
                 )
 
             workbook = load_workbook(workbook_path, data_only=False)
-            reason_sheet = workbook[MISSING_REASON_SHEET]
+            reason_sheet = workbook[build_export_sheet_title(company.secname, MISSING_REASON_SHEET)]
             reasons = {
                 reason_sheet.cell(row, 3).value: reason_sheet.cell(row, 4).value
                 for row in range(2, reason_sheet.max_row + 1)
