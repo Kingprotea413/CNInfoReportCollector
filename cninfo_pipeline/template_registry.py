@@ -14,6 +14,14 @@ TEMPLATE_GLOB_PATTERNS = (
     "cninfo_pipeline/*模板*.xlsx",
     "cninfo_pipeline/templates/*.xlsx",
 )
+TEMPLATE_ID_ALIASES = {
+    "工商银行财务报表模版": "银行财务报表模版",
+    "长江电力年度报告财务报表模版": "公司财务报表模版",
+}
+DISPLAY_NAME_OVERRIDES = {
+    "银行财务报表模版": "银行",
+    "公司财务报表模版": "公司",
+}
 
 
 @dataclass(frozen=True)
@@ -69,6 +77,8 @@ def _guess_template_kind(path: Path) -> str:
 
 
 def _build_display_name(path: Path, kind: str) -> str:
+    if path.stem in DISPLAY_NAME_OVERRIDES:
+        return DISPLAY_NAME_OVERRIDES[path.stem]
     prefix = "银行财务" if kind == "bank" else "公司财报"
     return f"{prefix} - {path.stem}"
 
@@ -96,7 +106,8 @@ def discover_templates() -> tuple[TemplateSpec, ...]:
 
 
 def available_template_ids() -> tuple[str, ...]:
-    return tuple(template.template_id for template in discover_templates())
+    template_ids = [template.template_id for template in discover_templates()]
+    return tuple(template_ids + list(TEMPLATE_ID_ALIASES))
 
 
 def default_template_id() -> str | None:
@@ -115,6 +126,7 @@ def resolve_template(template_id: str | None) -> TemplateSpec:
         raise FileNotFoundError("未找到可用的 Excel 模板，请把模板文件放到 cninfo_pipeline 目录。")
 
     requested = str(template_id or default_template_id() or "").strip()
+    requested = TEMPLATE_ID_ALIASES.get(requested, requested)
     if requested:
         for template in templates:
             if template.template_id == requested:

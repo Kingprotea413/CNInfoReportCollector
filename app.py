@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from cninfo_pipeline.constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL
 from cninfo_pipeline.paths import ensure_writable_dir, resolve_app_data_dir, resolve_default_output_dir
-from cninfo_pipeline.template_registry import default_template_id, discover_templates, resolve_template
+from cninfo_pipeline.template_registry import available_template_ids, default_template_id, discover_templates, resolve_template
 
 
 LOG_FILE_NAME = "last_error.log"
@@ -27,12 +27,11 @@ def resolve_unit_label(candidate: str | None) -> str:
 
 
 def resolve_template_id(candidate: str | None) -> str:
-    template_ids = {template.template_id for template in discover_templates()}
+    if candidate in set(available_template_ids()):
+        return resolve_template(candidate).template_id
     fallback = default_template_id()
-    if candidate in template_ids:
-        return str(candidate)
     if fallback:
-        return fallback
+        return resolve_template(fallback).template_id
     raise FileNotFoundError("未找到可用的 Excel 模板，请把模板文件放到 cninfo_pipeline 目录。")
 
 
@@ -324,7 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--template",
         default=default_template_id(),
-        choices=tuple(template.template_id for template in discover_templates()),
+        choices=available_template_ids(),
         help="导出模板 ID",
     )
     parser.add_argument("--headless", action="store_true", help="不启动窗口，直接命令行执行")

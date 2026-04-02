@@ -211,9 +211,11 @@ class ServiceTests(unittest.TestCase):
     def test_discover_templates_finds_bank_and_company(self) -> None:
         templates = {template.template_id: template for template in discover_templates()}
 
-        self.assertIn("工商银行财务报表模版", templates)
-        self.assertIn("长江电力年度报告财务报表模版", templates)
-        self.assertEqual(templates["长江电力年度报告财务报表模版"].kind, "company")
+        self.assertIn("银行财务报表模版", templates)
+        self.assertIn("公司财务报表模版", templates)
+        self.assertEqual(templates["公司财务报表模版"].kind, "company")
+        self.assertEqual(resolve_template("工商银行财务报表模版").template_id, "银行财务报表模版")
+        self.assertEqual(resolve_template("长江电力年度报告财务报表模版").template_id, "公司财务报表模版")
 
     def test_is_section_label_does_not_treat_parenthesized_items_as_titles(self) -> None:
         self.assertFalse(is_section_label("（3）现金流量套期储备", None))
@@ -236,7 +238,7 @@ class ServiceTests(unittest.TestCase):
         fake_output = Path("out") / "工业富联财务报表2024YE.xlsx"
         fake_cache_dir = Path("cache-dir")
         fake_output_dir = Path("exports")
-        template_id = "工商银行财务报表模版"
+        template_id = "银行财务报表模版"
 
         with (
             patch("cninfo_pipeline.service.prepare_cache_dir", return_value=fake_cache_dir),
@@ -268,7 +270,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_export_template_workbook_company_template_uses_template_sheets(self) -> None:
         company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
-        template = resolve_template("长江电力年度报告财务报表模版")
+        template = resolve_template("公司财务报表模版")
         balance_records = [
             build_balance_record("2024-12-31", F006N=10_000_000, F038N=28_000_000, F061N=15_000_000),
             build_balance_record("2023-12-31", F006N=8_000_000, F038N=24_000_000, F061N=12_000_000),
@@ -328,7 +330,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_export_template_workbook_expands_to_all_annual_periods(self) -> None:
         company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
-        template = resolve_template("长江电力年度报告财务报表模版")
+        template = resolve_template("公司财务报表模版")
         balance_records = [
             build_balance_record("2024-12-31", F006N=10_000_000, F038N=28_000_000, F061N=15_000_000),
             build_balance_record("2023-12-31", F006N=8_000_000, F038N=24_000_000, F061N=12_000_000),
