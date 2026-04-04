@@ -17,6 +17,7 @@ from cninfo_pipeline.service import (
     prepare_cache_dir,
 )
 from cninfo_pipeline.template_export import (
+    DERIVED_FILL,
     MISSING_REASON_SHEET,
     SECTION_FILL_BY_STATEMENT,
     build_export_sheet_title,
@@ -277,8 +278,8 @@ class ServiceTests(unittest.TestCase):
             build_balance_record("2023-12-31", F006N=8_000_000, F038N=24_000_000, F061N=12_000_000),
         ]
         income_records = [
-            build_statement_record("2024-12-31", F006N=30_000_000, F035N=30_000_000, F018N=10_000_000),
-            build_statement_record("2023-12-31", F006N=25_000_000, F035N=25_000_000, F018N=8_000_000),
+            build_statement_record("2024-12-31", F006N=30_000_000, F035N=30_000_000, F018N=10_000_000, F062N=120_000),
+            build_statement_record("2023-12-31", F006N=25_000_000, F035N=25_000_000, F018N=8_000_000, F062N=110_000),
         ]
         cash_flow_records = [
             build_statement_record("2024-12-31", F015N=5_000_000, F041N=9_000_000),
@@ -309,29 +310,40 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(workbook.sheetnames[-1], build_export_sheet_title(company.secname, MISSING_REASON_SHEET))
 
             balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
-            self.assertEqual(balance_sheet["A1"].value, "项目（单位：万元）")
+            self.assertEqual(balance_sheet["A1"].value, "报表日期")
+            self.assertEqual(balance_sheet["A2"].value, "单位")
+            self.assertEqual(balance_sheet["B1"].value, "注释")
+            self.assertEqual(balance_sheet["B2"].value, "推导说明")
+            self.assertEqual(balance_sheet["C2"].value, "万元")
             self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(balance_sheet["D1"].value), "2023-12-31")
             self.assertGreater(balance_sheet.column_dimensions["A"].width, 10)
-            self.assertTrue(balance_sheet["A2"].alignment.wrap_text)
+            self.assertTrue(balance_sheet["A3"].alignment.wrap_text)
             self.assertEqual(balance_sheet["A1"].font.name, template_workbook[template_workbook.sheetnames[0]]["A1"].font.name)
             self.assertEqual(balance_sheet["A1"].font.sz, template_workbook[template_workbook.sheetnames[0]]["A1"].font.sz)
             self.assertEqual(balance_sheet["C1"].font.sz, template_workbook[template_workbook.sheetnames[0]]["A1"].font.sz)
             self.assertEqual(balance_sheet["A1"].border.left.style, "medium")
-            self.assertEqual(balance_sheet["C1"].border.left.style, "medium")
+            self.assertEqual(balance_sheet["B1"].border.left.style, "medium")
             cash_row = find_row_index(balance_sheet, "货币资金")
             self.assertEqual(balance_sheet.cell(cash_row, 3).value, 1000)
             self.assertEqual(balance_sheet.cell(cash_row, 4).value, 800)
 
             income_sheet = workbook[build_export_sheet_title(company.secname, "利润表")]
-            self.assertEqual(income_sheet["A1"].value, "项目（单位：万元）")
-            self.assertEqual(iso_date(income_sheet["B1"].value), "2024-12-31")
-            self.assertEqual(iso_date(income_sheet["C1"].value), "2023-12-31")
+            self.assertEqual(income_sheet["A1"].value, "报表日期")
+            self.assertEqual(income_sheet["B1"].value, "注释")
+            self.assertEqual(iso_date(income_sheet["C1"].value), "2024-12-31")
+            self.assertEqual(iso_date(income_sheet["D1"].value), "2023-12-31")
+            self.assertEqual(income_sheet["A3"].value, "一、营业收入")
+            extra_gain_row = find_row_index(income_sheet, "其他收益")
+            self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
+            income_labels = {income_sheet.cell(row, 1).value for row in range(1, income_sheet.max_row + 1)}
+            self.assertNotIn("营业收入", income_labels)
 
             cash_sheet = workbook[build_export_sheet_title(company.secname, "现金流量表")]
-            self.assertEqual(cash_sheet["A1"].value, "项目（单位：万元）")
-            self.assertEqual(iso_date(cash_sheet["B1"].value), "2024-12-31")
-            self.assertEqual(iso_date(cash_sheet["C1"].value), "2023-12-31")
+            self.assertEqual(cash_sheet["A1"].value, "报表日期")
+            self.assertEqual(cash_sheet["B1"].value, "注释")
+            self.assertEqual(iso_date(cash_sheet["C1"].value), "2024-12-31")
+            self.assertEqual(iso_date(cash_sheet["D1"].value), "2023-12-31")
 
             template_workbook.close()
             workbook.close()
@@ -368,6 +380,7 @@ class ServiceTests(unittest.TestCase):
 
             workbook = load_workbook(workbook_path, data_only=False)
             balance_sheet = workbook[workbook.sheetnames[0]]
+            self.assertEqual(balance_sheet["B1"].value, "注释")
             self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(balance_sheet["D1"].value), "2023-12-31")
             self.assertEqual(iso_date(balance_sheet["E1"].value), "2022-12-31")
@@ -546,70 +559,79 @@ class ServiceTests(unittest.TestCase):
             reason_sheet = workbook[build_export_sheet_title(company.secname, MISSING_REASON_SHEET)]
 
             self.assertEqual(balance_sheet["A1"].value, "项目（单位：万元）")
-            self.assertEqual(iso_date(balance_sheet["B1"].value), "2025-12-31")
-            self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
+            self.assertEqual(balance_sheet["B1"].value, "注释")
+            self.assertEqual(iso_date(balance_sheet["C1"].value), "2025-12-31")
+            self.assertEqual(iso_date(balance_sheet["D1"].value), "2024-12-31")
             self.assertEqual(balance_sheet["A2"].value, "资产：")
             self.assertGreater(balance_sheet.column_dimensions["A"].width, 10)
             self.assertTrue(balance_sheet["A2"].alignment.wrap_text)
             self.assertTrue(balance_sheet["A2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["balance"].fgColor.rgb[-6:]))
+            self.assertTrue(balance_sheet["B2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["balance"].fgColor.rgb[-6:]))
             self.assertIsNone(balance_sheet["A2"].comment)
             self.assertEqual(balance_sheet["A1"].font.sz, 11)
-            self.assertEqual(balance_sheet["B1"].font.sz, 11)
+            self.assertEqual(balance_sheet["C1"].font.sz, 11)
             self.assertEqual(balance_sheet["A1"].border.left.style, "medium")
             self.assertEqual(balance_sheet["B1"].border.left.style, "medium")
             long_term_row = find_row_index(balance_sheet, "长期股权投资")
-            self.assertEqual(balance_sheet.cell(long_term_row, 2).value, 300)
+            self.assertEqual(balance_sheet.cell(long_term_row, 3).value, 300)
             split_borrow_row = find_row_index(balance_sheet, "拆入资金")
-            self.assertEqual(balance_sheet.cell(split_borrow_row, 2).value, 120)
+            self.assertEqual(balance_sheet.cell(split_borrow_row, 3).value, 120)
             derivative_liab_row = find_row_index(balance_sheet, "衍生金融负债")
-            self.assertEqual(balance_sheet.cell(derivative_liab_row, 2).value, 130)
+            self.assertEqual(balance_sheet.cell(derivative_liab_row, 3).value, 130)
             equity_tool_row = find_row_index(balance_sheet, "其他权益工具：")
-            self.assertEqual(balance_sheet.cell(equity_tool_row, 2).value, 140)
+            self.assertEqual(balance_sheet.cell(equity_tool_row, 3).value, 140)
             self.assertNotEqual(
                 balance_sheet.cell(equity_tool_row, 1).fill.fgColor.rgb,
                 SECTION_FILL_BY_STATEMENT["balance"].fgColor.rgb,
             )
             preferred_row = find_row_index(balance_sheet, "优先股")
-            self.assertEqual(balance_sheet.cell(preferred_row, 2).value, 50)
+            self.assertEqual(balance_sheet.cell(preferred_row, 3).value, 50)
             perpetual_row = find_row_index(balance_sheet, "永续债")
-            self.assertEqual(balance_sheet.cell(perpetual_row, 2).value, 90)
+            self.assertEqual(balance_sheet.cell(perpetual_row, 3).value, 90)
             oci_row = find_row_index(balance_sheet, "其他综合收益")
-            self.assertEqual(balance_sheet.cell(oci_row, 2).value, 11)
+            self.assertEqual(balance_sheet.cell(oci_row, 3).value, 11)
             minority_row = find_row_index(balance_sheet, "少数股东权益")
-            self.assertEqual(balance_sheet.cell(minority_row, 2).value, 9)
+            self.assertEqual(balance_sheet.cell(minority_row, 3).value, 9)
 
             self.assertEqual(income_sheet["A2"].value, "利息净收入")
-            self.assertEqual(iso_date(income_sheet["B1"].value), "2025-12-31")
+            self.assertEqual(income_sheet["B1"].value, "注释")
+            self.assertEqual(iso_date(income_sheet["C1"].value), "2025-12-31")
             interest_row = find_row_index(income_sheet, "利息净收入")
-            self.assertEqual(income_sheet.cell(interest_row, 2).value, 50)
+            self.assertEqual(income_sheet.cell(interest_row, 3).value, 50)
 
             self.assertEqual(cash_sheet["A2"].value, "一、经营活动产生的现金流量：")
-            self.assertEqual(iso_date(cash_sheet["B1"].value), "2025-12-31")
+            self.assertEqual(cash_sheet["B1"].value, "注释")
+            self.assertEqual(iso_date(cash_sheet["C1"].value), "2025-12-31")
             self.assertTrue(cash_sheet["A2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["cash"].fgColor.rgb[-6:]))
+            self.assertTrue(cash_sheet["B2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["cash"].fgColor.rgb[-6:]))
             collected_fee_row = find_row_index(cash_sheet, "收取的利息、手续费及佣金的现金")
-            self.assertEqual(cash_sheet.cell(collected_fee_row, 2).value, 12)
+            self.assertEqual(cash_sheet.cell(collected_fee_row, 3).value, 12)
             loans_row = find_row_index(cash_sheet, "客户贷款及垫款净额")
-            self.assertEqual(cash_sheet.cell(loans_row, 2).value, 13)
+            self.assertEqual(cash_sheet.cell(loans_row, 3).value, 13)
             merged_payroll_tax_row = find_row_index(cash_sheet, "支付给职工以及为职工支付的现金支付的各项税费")
-            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 2).value, 6)
+            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 3).value, 6)
+            self.assertTrue(
+                cash_sheet.cell(merged_payroll_tax_row, 3).fill.fgColor.rgb.endswith(DERIVED_FILL.fgColor.rgb[-6:])
+            )
+            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 2).value, "推导：支付给职工以及为职工支付的现金 + 支付的各项税费")
             other_invest_row = find_row_index(cash_sheet, "收到其他与投资活动有关的现金")
-            self.assertEqual(cash_sheet.cell(other_invest_row, 2).value, 3)
+            self.assertEqual(cash_sheet.cell(other_invest_row, 3).value, 3)
             capex_row = find_row_index(cash_sheet, "购建固定资产、无形资产和其他长期资产支付的现金")
-            self.assertEqual(cash_sheet.cell(capex_row, 2).value, 5)
+            self.assertEqual(cash_sheet.cell(capex_row, 3).value, 5)
             debt_issue_row = find_row_index(cash_sheet, "发行债务证券所收到的现金")
-            self.assertEqual(cash_sheet.cell(debt_issue_row, 2).value, 11)
+            self.assertEqual(cash_sheet.cell(debt_issue_row, 3).value, 11)
             debt_repay_row = find_row_index(cash_sheet, "偿还债务证券所支付的现金")
-            self.assertEqual(cash_sheet.cell(debt_repay_row, 2).value, 8)
+            self.assertEqual(cash_sheet.cell(debt_repay_row, 3).value, 8)
             other_finance_row = find_row_index(cash_sheet, "支付其他与筹资活动有关的现金")
-            self.assertEqual(cash_sheet.cell(other_finance_row, 2).value, 7)
+            self.assertEqual(cash_sheet.cell(other_finance_row, 3).value, 7)
             fx_row = find_row_index(cash_sheet, "四、汇率变动对现金及现金等价物")
-            self.assertEqual(cash_sheet.cell(fx_row, 2).value, 6)
+            self.assertEqual(cash_sheet.cell(fx_row, 3).value, 6)
             net_cash_row = find_row_index(cash_sheet, "经营活动产生的现金流量净额")
-            self.assertEqual(cash_sheet.cell(net_cash_row, 2).value, 10)
+            self.assertEqual(cash_sheet.cell(net_cash_row, 3).value, 10)
             opening_cash_row = find_row_index(cash_sheet, "年初现金及现金等价物余额")
-            self.assertEqual(cash_sheet.cell(opening_cash_row, 2).value, 50)
+            self.assertEqual(cash_sheet.cell(opening_cash_row, 3).value, 50)
             closing_cash_row = find_row_index(cash_sheet, "年末现金及现金等价物余额")
-            self.assertEqual(cash_sheet.cell(closing_cash_row, 2).value, 40)
+            self.assertEqual(cash_sheet.cell(closing_cash_row, 3).value, 40)
             self.assertEqual(reason_sheet["A1"].value, "工作表")
             reason_labels = {reason_sheet.cell(row, 3).value for row in range(2, reason_sheet.max_row + 1)}
             self.assertIn("资产：", reason_labels)
@@ -660,9 +682,9 @@ class ServiceTests(unittest.TestCase):
             }
 
             self.assertEqual(reasons["资产："], "模板分组行")
-            self.assertEqual(reasons["未映射项目"], "待补充映射/公式")
-            self.assertEqual(reasons["优先股"], "API 未提供字段")
-            self.assertEqual(reasons["资本公积"], "本期未披露数值")
+            self.assertEqual(reasons["未映射项目"], "模板有此行但接口无对应字段")
+            self.assertEqual(reasons["优先股"], "模板有此行但接口无对应字段")
+            self.assertEqual(reasons["资本公积"], "接口字段存在但所选年度无值")
             workbook.close()
 
 

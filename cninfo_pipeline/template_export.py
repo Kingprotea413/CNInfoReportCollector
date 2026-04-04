@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 from .client import CompanyRecord
 from .constants import DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
 from .paths import ensure_writable_dir
-from .service import normalize_unit_label
+from .service import DIRECT_FIELD_MAP, normalize_unit_label
 from .template_registry import TemplateSpec, resolve_template
 
 
@@ -24,12 +24,15 @@ DEFAULT_ANNUAL_PERIODS = 2
 DATE_PATTERN = re.compile(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}")
 HEADER_FILL = PatternFill(fill_type="solid", fgColor="D9EAF7")
 HEADER_FONT = Font(bold=True, color="1F2937")
+DERIVED_FILL = PatternFill(fill_type="solid", fgColor="FFF2CC")
 SECTION_FILL_BY_STATEMENT = {
-    "balance": PatternFill(fill_type="solid", fgColor="DCEBFA"),
-    "income": PatternFill(fill_type="solid", fgColor="E3F4E8"),
-    "cash": PatternFill(fill_type="solid", fgColor="FCE8D5"),
+    "balance": PatternFill(fill_type="solid", fgColor="EAF2F8"),
+    "income": PatternFill(fill_type="solid", fgColor="EAF2F8"),
+    "cash": PatternFill(fill_type="solid", fgColor="EAF2F8"),
 }
 SECTION_FONT = Font(bold=True, color="1F2937")
+NOTE_HEADER = "注释"
+NOTE_SUBHEADER = "推导说明"
 MISSING_REASON_SHEET = "空白项说明"
 SEPARATOR_SIDE = Side(style="medium", color="000000")
 STATEMENT_SHEET_SUFFIX = {
@@ -51,7 +54,22 @@ SECTION_LABEL_EXACT = {
     "筹资活动产生的现金流量",
     "现金及现金等价物净增加额",
     "补充资料",
+    "补充项目",
 }
+
+
+@dataclass(frozen=True)
+class SupplementalItem:
+    label: str
+    resolver: Resolver
+
+
+@dataclass(frozen=True)
+class FieldCatalogItem:
+    field_name: str
+    label: str
+    template_kind: str
+    statement_type: str
 
 
 def _resolver_with_metadata(
@@ -71,6 +89,10 @@ def resolver_kind(resolver: Resolver | None) -> str:
 
 def resolver_source_fields(resolver: Resolver | None) -> tuple[str, ...]:
     return tuple(getattr(resolver, "_source_fields", ()))
+
+
+def is_derived_resolver(resolver: Resolver | None) -> bool:
+    return resolver_kind(resolver) in {"sum", "subtract", "sum_available"}
 
 
 def field(field_name: str) -> Resolver:
@@ -126,6 +148,35 @@ def first_available(*resolvers: Resolver) -> Resolver:
         kind="first_available",
         source_fields=tuple(source_fields),
     )
+
+
+def sum_available_fields(*field_names: str) -> Resolver:
+    def resolver(record: dict) -> object | None:
+        values = [record.get(field_name) for field_name in field_names]
+        numeric = [value for value in values if isinstance(value, (int, float))]
+        return sum(numeric) if numeric else None
+
+    return _resolver_with_metadata(
+        resolver,
+        kind="sum_available",
+        source_fields=tuple(field_names),
+    )
+
+
+def placeholder(kind: str, *source_fields: str) -> Resolver:
+    return _resolver_with_metadata(
+        lambda _record: None,
+        kind=kind,
+        source_fields=tuple(source_fields),
+    )
+
+
+def aggregate_only(*source_fields: str) -> Resolver:
+    return placeholder("aggregate_only", *source_fields)
+
+
+def formula_required(*source_fields: str) -> Resolver:
+    return placeholder("formula_required", *source_fields)
 
 
 def normalize_label(value: object | None) -> str:
@@ -450,6 +501,219 @@ BANK_CASH_RESOLVERS: dict[str, Resolver] = {
     canonical_label("年末现金及现金等价物余额"): field("F041N"),
 }
 
+COMPANY_BALANCE_RESOLVERS.update(
+    {
+        canonical_label("应收票据及应收账款"): sum_fields("F008N", "F009N"),
+        canonical_label("划分为持有待售的资产"): field("F118N"),
+        canonical_label("债权投资"): aggregate_only("F022N"),
+        canonical_label("其他债权投资"): aggregate_only("F022N"),
+        canonical_label("可供出售金融资产"): aggregate_only("F111N"),
+        canonical_label("持有至到期投资"): aggregate_only("F112N"),
+        canonical_label("发放贷款及垫款"): field("F113N"),
+        canonical_label("固定资产及清理"): sum_available_fields("F025N", "F028N"),
+        canonical_label("工程物资"): field("F027N"),
+        canonical_label("固定资产净额"): field("F025N"),
+        canonical_label("固定资产清理"): field("F028N"),
+        canonical_label("应付票据及应付账款"): sum_fields("F041N", "F042N"),
+        canonical_label("吸收存款同业存放"): placeholder("no_api_field"),
+        canonical_label("应付手续费及佣金"): aggregate_only("F115N"),
+        canonical_label("一年内的递延收益"): field("F116N"),
+        canonical_label("应付短期债券"): field("F114N"),
+        canonical_label("预计非流动负债"): field("F057N"),
+        canonical_label("专项应付款"): field("F077N"),
+        canonical_label("长期递延收益"): field("F075N"),
+        canonical_label("归属于母公司股东权益合计"): field("F073N"),
+    }
+)
+
+COMPANY_INCOME_RESOLVERS.update(
+    {
+        canonical_label("一、营业收入"): field("F006N"),
+        canonical_label("营业税金及附加"): field("F008N"),
+        canonical_label("公允价值变动收益"): field("F014N"),
+        canonical_label("投资收益"): field("F015N"),
+        canonical_label("汇兑收益"): field("F023N"),
+        canonical_label("三、营业利润"): field("F018N"),
+        canonical_label("加:营业外收入"): field("F020N"),
+        canonical_label("减:营业外支出"): field("F021N"),
+        canonical_label("减：营业外支出"): field("F021N"),
+        canonical_label("其中：非流动资产处置损失"): formula_required("F021N", "F065N"),
+        canonical_label("四、利润总额"): field("F024N"),
+        canonical_label("减：所得税费用"): field("F025N"),
+        canonical_label("五、净利润"): field("F027N"),
+        canonical_label("归属于母公司所有者的净利润"): field("F028N"),
+        canonical_label("少数股东损益"): field("F029N"),
+        canonical_label("基本每股收益元股"): field("F031N"),
+        canonical_label("稀释每股收益元股"): field("F032N"),
+        canonical_label("基本每股收益元股"): field("F031N"),
+        canonical_label("七、其他综合收益"): field("F038N"),
+        canonical_label("八、综合收益总额"): field("F039N"),
+        canonical_label("归属于母公司所有者的综合收益总额"): field("F040N"),
+        canonical_label("归属于少数股东的综合收益总额"): field("F041N"),
+        canonical_label("资产减值损失"): field("F064N"),
+    }
+)
+
+COMPANY_CASH_RESOLVERS.update(
+    {
+        canonical_label("收到的其他与经营活动有关的现金"): field("F008N"),
+        canonical_label("支付给职工以及为职工支付的现金"): field("F011N"),
+        canonical_label("支付的其他与经营活动有关的现金"): field("F013N"),
+        canonical_label("收回投资所收到的现金"): field("F016N"),
+        canonical_label("取得投资收益所收到的现金"): field("F017N"),
+        canonical_label("处置固定资产、无形资产和其他长期资产所收回的现金净额"): field("F018N"),
+        canonical_label("处置子公司及其他营业单位收到的现金净额"): field("F019N"),
+        canonical_label("收到的其他与投资活动有关的现金"): field("F020N"),
+        canonical_label("购建固定资产、无形资产和其他长期资产所支付的现金"): field("F022N"),
+        canonical_label("投资所支付的现金"): field("F023N"),
+        canonical_label("取得子公司及其他营业单位支付的现金净额"): field("F024N"),
+        canonical_label("支付的其他与投资活动有关的现金"): field("F025N"),
+        canonical_label("吸收投资收到的现金"): field("F028N"),
+        canonical_label("其中：子公司吸收少数股东投资收到的现金"): field("F089N"),
+        canonical_label("发行债券收到的现金"): aggregate_only("F029N"),
+        canonical_label("收到其他与筹资活动有关的现金"): field("F030N"),
+        canonical_label("分配股利、利润或偿付利息所支付的现金"): field("F033N"),
+        canonical_label("其中：子公司支付给少数股东的股利、利润"): field("F091N"),
+        canonical_label("四、汇率变动对现金及现金等价物的影响"): field("F037N"),
+        canonical_label("加:期初现金及现金等价物余额"): field("F040N"),
+        canonical_label("六、期末现金及现金等价物余额"): field("F041N"),
+        canonical_label("少数股东权益"): field("F029N"),
+    }
+)
+
+BANK_BALANCE_RESOLVERS.update(
+    {
+        canonical_label("衍生金融工具资产"): field("F035N"),
+        canonical_label("买入返售金融资产"): field("F117N"),
+        canonical_label("固定资产合计"): field("F025N"),
+        canonical_label("无形资产"): field("F031N"),
+        canonical_label("商誉"): field("F033N"),
+        canonical_label("递延税款借项"): field("F087N"),
+        canonical_label("投资性房地产"): field("F024N"),
+        canonical_label("拆入资金"): field("F089N"),
+        canonical_label("衍生金融工具负债"): field("F090N"),
+        canonical_label("交易性金融负债"): first_available(field("F040N"), field("F113N")),
+        canonical_label("卖出回购金融资产款"): field("F091N"),
+        canonical_label("应付职工薪酬"): field("F044N"),
+        canonical_label("应交税费"): field("F045N"),
+        canonical_label("应付利息"): field("F046N"),
+        canonical_label("应付账款"): field("F042N"),
+        canonical_label("应付债券"): field("F054N"),
+        canonical_label("递延所得税负债"): field("F058N"),
+        canonical_label("预计负债"): field("F057N"),
+        canonical_label("减:库藏股"): field("F066N"),
+        canonical_label("外币报表折算差额"): aggregate_only("F074N"),
+    }
+)
+
+BANK_INCOME_RESOLVERS.update(
+    {
+        canonical_label("一、营业收入"): field("F035N"),
+        canonical_label("其中：利息收入"): aggregate_only("F033N"),
+        canonical_label("减：利息支出"): aggregate_only("F033N"),
+        canonical_label("其中:手续费及佣金收入"): aggregate_only("F042N"),
+        canonical_label("减：手续费及佣金支出"): aggregate_only("F042N"),
+        canonical_label("汇兑收益"): field("F017N"),
+        canonical_label("投资净收益"): field("F015N"),
+        canonical_label("其中:对联营公司的投资收益"): field("F016N"),
+        canonical_label("公允价值变动净收益"): field("F014N"),
+        canonical_label("营业税金及附加"): field("F008N"),
+        canonical_label("研发费用"): placeholder("no_api_field"),
+        canonical_label("其他业务支出"): placeholder("no_api_field"),
+        canonical_label("三、营业利润"): field("F018N"),
+        canonical_label("加:营业外收入"): field("F020N"),
+        canonical_label("减:营业外支出"): field("F021N"),
+        canonical_label("四、利润总额"): field("F024N"),
+        canonical_label("减:所得税"): field("F025N"),
+        canonical_label("五、净利润"): field("F027N"),
+        canonical_label("归属于母公司的净利润"): field("F028N"),
+        canonical_label("少数股东权益"): field("F029N"),
+        canonical_label("基本每股收益元股"): field("F031N"),
+        canonical_label("稀释每股收益元股"): field("F032N"),
+        canonical_label("七、其他综合收益"): field("F038N"),
+        canonical_label("八、综合收益总额"): field("F039N"),
+        canonical_label("归属于母公司所有者的综合收益总额"): field("F040N"),
+        canonical_label("归属于少数股东的综合收益总额"): field("F041N"),
+    }
+)
+
+BANK_CASH_RESOLVERS.update(
+    {
+        canonical_label("收到其他与经营活动有关的现金"): field("F008N"),
+        canonical_label("收取利息、手续费及佣金的现金"): field("F081N"),
+        canonical_label("客户贷款及垫款净增加额"): field("F084N"),
+        canonical_label("支付其他与经营活动有关的现金"): field("F013N"),
+        canonical_label("支付利息、手续费及佣金的现金"): field("F087N"),
+        canonical_label("客户存款和同业存放款项净增加额"): field("F072N"),
+        canonical_label("向中央银行借款净增加额"): field("F073N"),
+        canonical_label("向其他金融机构拆入资金净增加额"): field("F074N"),
+        canonical_label("存放中央银行和同业款项净增加额"): field("F085N"),
+        canonical_label("支付给职工以及为职工支付的现金"): field("F011N"),
+        canonical_label("支付的各项税费"): field("F012N"),
+        canonical_label("处置固定资产、无形资产及其他资产而收到的现金"): field("F018N"),
+        canonical_label("取得子公司及其他营业单位所收到的现金净额"): field("F019N"),
+        canonical_label("支付的其他与投资活动有关的现金"): field("F025N"),
+        canonical_label("吸收投资所收到的现金"): field("F028N"),
+        canonical_label("发行债券收到的现金"): field("F076N"),
+        canonical_label("收到其他与筹资活动有关的现金"): field("F030N"),
+        canonical_label("分配股利、利润或偿付利息支付的现金"): field("F033N"),
+        canonical_label("其中:偿付利息所支付的现金"): aggregate_only("F033N"),
+        canonical_label("五、现金及现金等价物净增加额"): field("F071N"),
+        canonical_label("加:期初现金及现金等价物余额"): field("F040N"),
+        canonical_label("六、期末现金及现金等价物余额"): field("F041N"),
+        canonical_label("加:少数股东收益"): field("F029N"),
+        canonical_label("经营活动现金流量净额"): first_available(field("F015N"), field("F060N")),
+        canonical_label("现金的期末余额"): field("F041N"),
+        canonical_label("减:现金的期初余额"): field("F040N"),
+        canonical_label("现金等价物的期末余额"): field("F041N"),
+        canonical_label("减：现金等价物的期初余额"): field("F040N"),
+        canonical_label("现金及现金等价物净增加额"): field("F071N"),
+    }
+)
+
+ROW_OCCURRENCE_RESOLVERS: dict[tuple[str, str], dict[tuple[str, int], Resolver]] = {
+    ("company", "balance"): {
+        (canonical_label("其他应收款"), 1): field("F011N"),
+        (canonical_label("其他应收款"), 2): field("F014N"),
+        (canonical_label("在建工程"), 1): sum_available_fields("F026N", "F027N"),
+        (canonical_label("在建工程"), 2): aggregate_only("F026N", "F027N"),
+        (canonical_label("其他应付款"), 1): field("F048N"),
+        (canonical_label("其他应付款"), 2): subtract_fields("F048N", "F046N", "F047N"),
+        (canonical_label("长期应付款"), 1): sum_available_fields("F056N", "F076N", "F077N"),
+        (canonical_label("长期应付款"), 2): field("F076N"),
+    },
+}
+
+TEMPLATE_LABEL_ALIASES: dict[tuple[str, str], dict[str, str]] = {
+    ("company", "balance"): {
+        canonical_label("发放贷款和垫款"): canonical_label("发放贷款及垫款"),
+    },
+    ("company", "income"): {
+        canonical_label("一、营业总收入"): canonical_label("一、营业收入"),
+        canonical_label("营业税金及附加"): canonical_label("税金及附加"),
+    },
+    ("company", "cash"): {
+        canonical_label("收到的其他与筹资活动有关的现金"): canonical_label("收到其他与筹资活动有关的现金"),
+        canonical_label("偿还债务所支付的现金"): canonical_label("偿还债务支付的现金"),
+    },
+    ("bank", "balance"): {
+        canonical_label("衍生金融工具资产"): canonical_label("衍生金融资产"),
+        canonical_label("买入返售金融资产"): canonical_label("买入返售款项"),
+        canonical_label("衍生金融工具负债"): canonical_label("衍生金融负债"),
+        canonical_label("卖出回购金融资产款"): canonical_label("卖出回购款项"),
+    },
+    ("bank", "income"): {
+        canonical_label("投资净收益"): canonical_label("投资收益"),
+        canonical_label("营业税金及附加"): canonical_label("税金及附加"),
+        canonical_label("业务及管理费用"): canonical_label("业务及管理费"),
+        canonical_label("其中：手续费及佣金收入"): canonical_label("其中:手续费及佣金收入"),
+        canonical_label("其中：对联营公司的投资收益"): canonical_label("其中:对联营公司的投资收益"),
+    },
+    ("bank", "cash"): {
+        canonical_label("收到的其他与筹资活动有关的现金"): canonical_label("收到其他与筹资活动有关的现金"),
+        canonical_label("偿还债务所支付的现金"): canonical_label("偿还债务证券所支付的现金"),
+    },
+}
 
 STATEMENT_RESOLVERS: dict[tuple[str, str], dict[str, Resolver]] = {
     ("company", "balance"): COMPANY_BALANCE_RESOLVERS,
@@ -461,9 +725,99 @@ STATEMENT_RESOLVERS: dict[tuple[str, str], dict[str, Resolver]] = {
 }
 
 
+MANUAL_FIELD_CATALOG: tuple[FieldCatalogItem, ...] = (
+    FieldCatalogItem("F048N", "其他应付款合计", "company", "balance"),
+    FieldCatalogItem("F056N", "长期应付款合计", "company", "balance"),
+    FieldCatalogItem("F075N", "递延收益", "company", "balance"),
+    FieldCatalogItem("F114N", "应付短期债券", "company", "balance"),
+    FieldCatalogItem("F062N", "其他收益", "company", "income"),
+    FieldCatalogItem("F063N", "信用减值损失", "company", "income"),
+    FieldCatalogItem("F064N", "资产减值损失", "company", "income"),
+    FieldCatalogItem("F065N", "资产处置收益", "company", "income"),
+    FieldCatalogItem("F072N", "客户存款和同业存放款项净增加额", "bank", "cash"),
+    FieldCatalogItem("F073N", "向中央银行借款净增加额", "bank", "cash"),
+    FieldCatalogItem("F074N", "向其他金融机构拆入资金净增加额", "bank", "cash"),
+    FieldCatalogItem("F081N", "收取利息、手续费及佣金的现金", "bank", "cash"),
+    FieldCatalogItem("F084N", "客户贷款及垫款净增加额", "bank", "cash"),
+    FieldCatalogItem("F085N", "存放中央银行和同业款项净增加额", "bank", "cash"),
+    FieldCatalogItem("F087N", "支付利息、手续费及佣金的现金", "bank", "cash"),
+    FieldCatalogItem("F103N", "其他权益工具", "bank", "balance"),
+    FieldCatalogItem("F104N", "优先股", "bank", "balance"),
+    FieldCatalogItem("F105N", "永续债", "bank", "balance"),
+)
+
+
+def build_api_field_catalog() -> dict[tuple[str, str], dict[str, str]]:
+    catalog: dict[tuple[str, str], dict[str, str]] = {}
+    for key, resolvers in STATEMENT_RESOLVERS.items():
+        field_map = catalog.setdefault(key, {})
+        for label_key, resolver in resolvers.items():
+            if resolver_kind(resolver) != "field":
+                continue
+            source_fields = resolver_source_fields(resolver)
+            if len(source_fields) != 1:
+                continue
+            field_map.setdefault(source_fields[0], label_key)
+
+    for item in MANUAL_FIELD_CATALOG:
+        catalog.setdefault((item.template_kind, item.statement_type), {})[item.field_name] = item.label
+    return catalog
+
+
+API_FIELD_CATALOG = build_api_field_catalog()
+
+
+def build_supplemental_items() -> dict[tuple[str, str], tuple[SupplementalItem, ...]]:
+    supplemental: dict[tuple[str, str], tuple[SupplementalItem, ...]] = {}
+    for key, field_map in API_FIELD_CATALOG.items():
+        ordered_items = tuple(
+            SupplementalItem(label, field(field_name))
+            for field_name, label in sorted(field_map.items(), key=lambda item: (item[1], item[0]))
+        )
+        supplemental[key] = ordered_items
+    return supplemental
+
+
+SUPPLEMENTAL_ITEMS = build_supplemental_items()
+
+
+GENERIC_FIELD_LABELS = {
+    field_name: label
+    for label, field_name in DIRECT_FIELD_MAP.items()
+}
+
+
+def source_field_labels(template_kind: str, statement_type: str, source_fields: tuple[str, ...]) -> list[str]:
+    field_map = API_FIELD_CATALOG.get((template_kind, statement_type), {})
+    return [field_map.get(field_name, GENERIC_FIELD_LABELS.get(field_name, "接口汇总项")) for field_name in source_fields]
+
+
+def describe_resolver(template_kind: str, statement_type: str, resolver: Resolver | None) -> str | None:
+    if resolver is None:
+        return None
+
+    kind = resolver_kind(resolver)
+    source_fields = resolver_source_fields(resolver)
+    if not source_fields or kind not in {"sum", "subtract", "sum_available"}:
+        return None
+
+    labels = source_field_labels(template_kind, statement_type, source_fields)
+    if kind == "sum":
+        return "推导：%s" % " + ".join(labels)
+    if kind == "subtract":
+        head, *tail = labels
+        return "推导：%s - %s" % (head, " - ".join(tail))
+    if kind == "sum_available":
+        return "推导：按有值项求和（%s）" % " + ".join(labels)
+    return None
+
+
 @dataclass(frozen=True)
 class SheetLayout:
     header_row: int
+    unit_row: int | None
+    data_start_row: int
+    note_col: int
     data_start_col: int
     period_count: int
 
@@ -517,18 +871,29 @@ def export_template_workbook(
 
         layout = prepare_sheet_layout(sheet, normalized_unit_label, len(records))
         periods = records[: layout.period_count]
-        write_period_headers(sheet, layout, periods)
+        write_period_headers(sheet, layout, periods, normalized_unit_label)
         clear_period_cells(sheet, layout)
-        missing_rows.extend(
-            fill_statement_sheet(
+        normalize_template_labels(sheet, template, statement_type)
+        sheet_missing_rows, covered_fields, template_label_keys = fill_statement_sheet(
             sheet=sheet,
             layout=layout,
             template=template,
             statement_type=statement_type,
             periods=periods,
             unit_scale=unit_scale,
-            )
         )
+        missing_rows.extend(sheet_missing_rows)
+        append_supplemental_section(
+            sheet=sheet,
+            layout=layout,
+            template=template,
+            statement_type=statement_type,
+            periods=periods,
+            unit_scale=unit_scale,
+            covered_fields=covered_fields,
+            template_label_keys=template_label_keys,
+        )
+        prune_statement_rows(sheet, template, statement_type)
         apply_consistent_fonts(sheet, base_font)
         apply_column_separators(sheet)
         auto_adjust_sheet_widths(sheet, layout)
@@ -573,13 +938,61 @@ def build_export_sheet_title(company_name: str, suffix: str) -> str:
 
 
 def prepare_sheet_layout(sheet, unit_label: str, record_count: int) -> SheetLayout:
-    header_row = ensure_header_row(sheet, unit_label)
-    data_start_col, existing_count = detect_period_columns(sheet, header_row)
+    dual_header = uses_dual_header_rows(sheet)
+    if dual_header:
+        note_col = ensure_note_column(sheet, dual_header=True)
+        style_header_label_cell(sheet.cell(1, 1), "报表日期")
+        style_header_label_cell(sheet.cell(2, 1), "单位")
+        data_start_col, existing_count = detect_period_columns(sheet, 1, min_col=note_col + 1)
+        period_count = max(existing_count, record_count, DEFAULT_ANNUAL_PERIODS)
+        return SheetLayout(
+            header_row=1,
+            unit_row=2,
+            data_start_row=3,
+            note_col=note_col,
+            data_start_col=data_start_col,
+            period_count=period_count,
+        )
+
+    header_row = ensure_single_header_row(sheet, unit_label)
+    note_col = ensure_note_column(sheet, dual_header=False)
+    data_start_col, existing_count = detect_period_columns(sheet, header_row, min_col=note_col + 1)
     period_count = max(existing_count, record_count, DEFAULT_ANNUAL_PERIODS)
-    return SheetLayout(header_row=header_row, data_start_col=data_start_col, period_count=period_count)
+    return SheetLayout(
+        header_row=header_row,
+        unit_row=None,
+        data_start_row=header_row + 1,
+        note_col=note_col,
+        data_start_col=data_start_col,
+        period_count=period_count,
+    )
 
 
-def ensure_header_row(sheet, unit_label: str) -> int:
+def uses_dual_header_rows(sheet) -> bool:
+    return canonical_label(sheet.cell(1, 1).value) == canonical_label("报表日期") and canonical_label(
+        sheet.cell(2, 1).value
+    ) == canonical_label("单位")
+
+
+def style_header_label_cell(cell, value: str) -> None:
+    cell.value = value
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+    cell.fill = HEADER_FILL
+    cell.font = HEADER_FONT
+
+
+def ensure_note_column(sheet, *, dual_header: bool) -> int:
+    note_col = 2
+    if canonical_label(sheet.cell(1, note_col).value) != canonical_label(NOTE_HEADER):
+        sheet.insert_cols(note_col)
+
+    style_header_label_cell(sheet.cell(1, note_col), NOTE_HEADER)
+    if dual_header:
+        style_header_label_cell(sheet.cell(2, note_col), NOTE_SUBHEADER)
+    return note_col
+
+
+def ensure_single_header_row(sheet, unit_label: str) -> int:
     first_cell_key = canonical_label(sheet.cell(1, 1).value)
     if first_cell_key not in {canonical_label("项目"), canonical_label("报表日期")}:
         sheet.insert_rows(1)
@@ -591,10 +1004,10 @@ def ensure_header_row(sheet, unit_label: str) -> int:
     return 1
 
 
-def detect_period_columns(sheet, header_row: int) -> tuple[int, int]:
+def detect_period_columns(sheet, header_row: int, min_col: int = 2) -> tuple[int, int]:
     first_period_col: int | None = None
     existing_count = 0
-    for column in range(2, sheet.max_column + 1):
+    for column in range(min_col, sheet.max_column + 1):
         if looks_like_period_header(sheet.cell(header_row, column).value):
             first_period_col = column
             break
@@ -606,10 +1019,10 @@ def detect_period_columns(sheet, header_row: int) -> tuple[int, int]:
             column += 1
         return first_period_col, existing_count
 
-    second_cell = str(sheet.cell(header_row, 2).value or "")
+    second_cell = str(sheet.cell(header_row, min_col).value or "")
     if "附注" in second_cell:
-        return 3, 0
-    return 2, 0
+        return min_col + 1, 0
+    return min_col, 0
 
 
 def looks_like_period_header(value: object | None) -> bool:
@@ -654,7 +1067,12 @@ def apply_column_separators(sheet) -> None:
             cell.border = border
 
 
-def write_period_headers(sheet, layout: SheetLayout, periods: list[tuple[str, dict]]) -> None:
+def write_period_headers(
+    sheet,
+    layout: SheetLayout,
+    periods: list[tuple[str, dict]],
+    unit_label: str,
+) -> None:
     for offset in range(layout.period_count):
         column = layout.data_start_col + offset
         cell = sheet.cell(layout.header_row, column)
@@ -668,12 +1086,149 @@ def write_period_headers(sheet, layout: SheetLayout, periods: list[tuple[str, di
         else:
             cell.value = None
 
+        if layout.unit_row is not None:
+            unit_cell = sheet.cell(layout.unit_row, column)
+            unit_cell.alignment = Alignment(horizontal="center", vertical="center")
+            unit_cell.fill = HEADER_FILL
+            unit_cell.font = HEADER_FONT
+            unit_cell.value = unit_label
+
 
 def clear_period_cells(sheet, layout: SheetLayout) -> None:
     final_col = layout.data_start_col + layout.period_count - 1
-    for row in range(layout.header_row + 1, sheet.max_row + 1):
+    for row in range(layout.data_start_row, sheet.max_row + 1):
+        sheet.cell(row, layout.note_col).value = None
         for column in range(layout.data_start_col, final_col + 1):
             sheet.cell(row, column).value = None
+
+
+def normalize_template_labels(sheet, template: TemplateSpec, statement_type: str) -> None:
+    if template.kind != "company" or statement_type != "income":
+        return
+
+    for row in range(1, sheet.max_row + 1):
+        cell = sheet.cell(row, 1)
+        if canonical_label(cell.value) == canonical_label("一、营业总收入"):
+            cell.value = "一、营业收入"
+
+
+def prune_statement_rows(sheet, template: TemplateSpec, statement_type: str) -> None:
+    if template.kind == "company" and statement_type == "income":
+        for row in range(sheet.max_row, 0, -1):
+            if canonical_label(sheet.cell(row, 1).value) == canonical_label("营业收入"):
+                sheet.delete_rows(row, 1)
+
+    for row in range(sheet.max_row, 0, -1):
+        if all(sheet.cell(row, column).value in (None, "") for column in range(1, sheet.max_column + 1)):
+            sheet.delete_rows(row, 1)
+
+
+def is_placeholder_resolver(resolver: Resolver | None) -> bool:
+    return resolver_kind(resolver) in {"aggregate_only", "formula_required", "no_api_field"}
+
+
+def resolve_row_resolver(template_kind: str, statement_type: str, label_key: str, occurrence: int) -> Resolver | None:
+    occurrence_map = ROW_OCCURRENCE_RESOLVERS.get((template_kind, statement_type), {})
+    resolver = occurrence_map.get((label_key, occurrence))
+    if resolver is not None:
+        return resolver
+
+    resolvers = STATEMENT_RESOLVERS[(template_kind, statement_type)]
+    resolver = resolvers.get(label_key)
+    if resolver is not None:
+        return resolver
+
+    alias_map = TEMPLATE_LABEL_ALIASES.get((template_kind, statement_type), {})
+    aliased_key = alias_map.get(label_key)
+    if aliased_key is None:
+        return None
+    return resolvers.get(aliased_key)
+
+
+def write_resolved_value(
+    cell,
+    value: object | None,
+    unit_scale: int,
+    label_key: str,
+    *,
+    derived: bool = False,
+) -> bool:
+    if value is None:
+        return False
+
+    if isinstance(value, (int, float)) and label_key not in NON_SCALED_LABELS:
+        cell.value = value / unit_scale
+        cell.number_format = "#,##0"
+    else:
+        cell.value = value
+        if label_key in NON_SCALED_LABELS:
+            cell.number_format = "0.0000"
+    cell.alignment = Alignment(horizontal="right", vertical="center")
+    if derived:
+        cell.fill = DERIVED_FILL
+    return True
+
+
+def find_last_label_row(sheet) -> int:
+    for row in range(sheet.max_row, 0, -1):
+        if sheet.cell(row, 1).value not in (None, ""):
+            return row
+    return sheet.max_row
+
+
+def append_supplemental_section(
+    sheet,
+    layout: SheetLayout,
+    template: TemplateSpec,
+    statement_type: str,
+    periods: list[tuple[str, dict]],
+    unit_scale: int,
+    covered_fields: set[str],
+    template_label_keys: set[str],
+) -> None:
+    supplemental_items = SUPPLEMENTAL_ITEMS.get((template.kind, statement_type), ())
+    rows_to_append: list[tuple[str, str, Resolver, list[object | None]]] = []
+
+    for item in supplemental_items:
+        label_key = canonical_label(item.label)
+        if label_key in template_label_keys:
+            continue
+
+        source_fields = resolver_source_fields(item.resolver)
+        if source_fields and all(field_name in covered_fields for field_name in source_fields):
+            continue
+
+        values = [item.resolver(record) for _, record in periods]
+        if not any(value is not None for value in values):
+            continue
+        rows_to_append.append((item.label, label_key, item.resolver, values))
+
+    if not rows_to_append:
+        return
+
+    title_row = find_last_label_row(sheet) + 2
+    sheet.cell(title_row, 1, "补充项目")
+    apply_section_style(sheet, title_row, statement_type, "补充项目", None)
+
+    for offset, (label, label_key, resolver, values) in enumerate(rows_to_append, start=1):
+        row_index = title_row + offset
+        label_cell = sheet.cell(row_index, 1, label)
+        label_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        note_text = describe_resolver(template.kind, statement_type, resolver)
+        note_cell = sheet.cell(row_index, layout.note_col)
+        note_cell.value = note_text
+        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        if note_text:
+            note_cell.fill = DERIVED_FILL
+        for period_index, value in enumerate(values):
+            cell = sheet.cell(row_index, layout.data_start_col + period_index)
+            write_resolved_value(
+                cell,
+                value,
+                unit_scale,
+                label_key,
+                derived=is_derived_resolver(resolver),
+            )
 
 
 def fill_statement_sheet(
@@ -683,23 +1238,39 @@ def fill_statement_sheet(
     statement_type: str,
     periods: list[tuple[str, dict]],
     unit_scale: int,
-) -> list[MissingRowExplanation]:
-    resolvers = STATEMENT_RESOLVERS[(template.kind, statement_type)]
+) -> tuple[list[MissingRowExplanation], set[str], set[str]]:
     explanations: list[MissingRowExplanation] = []
+    covered_fields: set[str] = set()
+    template_label_keys: set[str] = set()
+    occurrences: dict[str, int] = {}
 
-    for row in range(2, sheet.max_row + 1):
+    for row in range(layout.data_start_row, sheet.max_row + 1):
         label_cell = sheet.cell(row, 1)
         raw_label = label_cell.value
+        if raw_label in (None, ""):
+            continue
         label_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         label_key = canonical_label(raw_label)
-        resolver = resolvers.get(label_key)
+        template_label_keys.add(label_key)
+        occurrences[label_key] = occurrences.get(label_key, 0) + 1
+        resolver = resolve_row_resolver(template.kind, statement_type, label_key, occurrences[label_key])
         apply_section_style(sheet, row, statement_type, raw_label, resolver)
+        note_cell = sheet.cell(row, layout.note_col)
+        note_text = describe_resolver(template.kind, statement_type, resolver)
+        note_cell.value = note_text
+        note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        if note_text:
+            note_cell.fill = DERIVED_FILL
+        if resolver is not None and not is_placeholder_resolver(resolver):
+            covered_fields.update(resolver_source_fields(resolver))
         if resolver is None:
             explanation = build_missing_row_explanation(
                 sheet_name=sheet.title,
                 row_index=row,
                 raw_label=raw_label,
                 resolver=None,
+                template_kind=template.kind,
+                statement_type=statement_type,
                 periods=periods,
             )
             if explanation is not None:
@@ -709,31 +1280,31 @@ def fill_statement_sheet(
         resolved_any_value = False
         for offset, (_period, record) in enumerate(periods):
             value = resolver(record)
-            if value is None:
-                continue
-
-            resolved_any_value = True
             cell = sheet.cell(row, layout.data_start_col + offset)
-            if isinstance(value, (int, float)) and label_key not in NON_SCALED_LABELS:
-                cell.value = value / unit_scale
-                cell.number_format = "#,##0"
-            else:
-                cell.value = value
-                if label_key in NON_SCALED_LABELS:
-                    cell.number_format = "0.0000"
-            cell.alignment = Alignment(horizontal="right", vertical="center")
+            resolved_any_value = (
+                write_resolved_value(
+                    cell,
+                    value,
+                    unit_scale,
+                    label_key,
+                    derived=is_derived_resolver(resolver),
+                )
+                or resolved_any_value
+            )
         if not resolved_any_value:
             explanation = build_missing_row_explanation(
                 sheet_name=sheet.title,
                 row_index=row,
                 raw_label=raw_label,
                 resolver=resolver,
+                template_kind=template.kind,
+                statement_type=statement_type,
                 periods=periods,
             )
             if explanation is not None:
                 explanations.append(explanation)
 
-    return explanations
+    return explanations, covered_fields, template_label_keys
 
 
 def apply_section_style(
@@ -743,7 +1314,7 @@ def apply_section_style(
     raw_label: object | None,
     resolver: Resolver | None,
 ) -> None:
-    if not is_section_label(raw_label, resolver):
+    if not is_section_style_label(raw_label, resolver):
         return
 
     fill = SECTION_FILL_BY_STATEMENT[statement_type]
@@ -752,14 +1323,12 @@ def apply_section_style(
         cell.fill = fill
         cell.font = SECTION_FONT
         if column == 1:
-            cell.alignment = Alignment(horizontal="left", vertical="center")
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
 
-def is_section_label(raw_label: object | None, resolver: Resolver | None) -> bool:
+def is_numbered_or_exact_section_label(raw_label: object | None) -> bool:
     text = str(raw_label or "").strip()
     if not text:
-        return False
-    if resolver is not None:
         return False
     if re.match(r"^[（(]\d+[)）]", text):
         return False
@@ -770,9 +1339,24 @@ def is_section_label(raw_label: object | None, resolver: Resolver | None) -> boo
         return True
     if re.match(r"^[一二三四五六七八九十]+[、.．]", text):
         return True
-    if text.endswith(("：", ":", "；", ";")) and len(normalized_text) <= 20:
+    return False
+
+
+def is_section_style_label(raw_label: object | None, resolver: Resolver | None) -> bool:
+    if is_numbered_or_exact_section_label(raw_label):
+        return True
+
+    text = str(raw_label or "").strip()
+    normalized_text = text.rstrip("：:；;")
+    if resolver is None and text.endswith(("：", ":", "；", ";")) and len(normalized_text) <= 20:
         return True
     return False
+
+
+def is_section_label(raw_label: object | None, resolver: Resolver | None) -> bool:
+    if resolver is not None:
+        return False
+    return is_section_style_label(raw_label, resolver)
 
 
 def build_missing_row_explanation(
@@ -781,6 +1365,8 @@ def build_missing_row_explanation(
     row_index: int,
     raw_label: object | None,
     resolver: Resolver | None,
+    template_kind: str,
+    statement_type: str,
     periods: list[tuple[str, dict]],
 ) -> MissingRowExplanation | None:
     label = str(raw_label or "").strip()
@@ -800,28 +1386,39 @@ def build_missing_row_explanation(
             sheet_name=sheet_name,
             row_index=row_index,
             label=label,
-            category="待补充映射/公式",
-            detail="当前程序还没有为该模板行配置取数字段或计算公式。",
+            category="模板有此行但接口无对应字段",
+            detail="模板里有该项目，但当前接口字典中没有可稳定对应的字段。",
         )
 
+    resolver_type = resolver_kind(resolver)
     source_fields = resolver_source_fields(resolver)
+    if resolver_type == "no_api_field":
+        return MissingRowExplanation(
+            sheet_name=sheet_name,
+            row_index=row_index,
+            label=label,
+            category="模板有此行但接口无对应字段",
+            detail="模板里有该项目，但当前接口没有可直接对应的独立字段。",
+        )
+
     if not source_fields:
         return MissingRowExplanation(
             sheet_name=sheet_name,
             row_index=row_index,
             label=label,
-            category="规则未产出结果",
-            detail="已有规则，但没有声明来源字段；通常意味着需要补公式或调整实现。",
+            category="需要公式但当前未实现",
+            detail="这行需要额外公式或口径转换，目前还没有安全可用的计算规则。",
         )
 
     present_fields = [field_name for field_name in source_fields if any(field_name in record for _, record in periods)]
+    present_field_labels = source_field_labels(template_kind, statement_type, tuple(present_fields))
     if not present_fields:
         return MissingRowExplanation(
             sheet_name=sheet_name,
             row_index=row_index,
             label=label,
-            category="API 未提供字段",
-            detail=f"当前接口返回中没有这些字段：{', '.join(source_fields)}。",
+            category="模板有此行但接口无对应字段",
+            detail="当前已接入接口返回里没有这类独立字段。",
         )
 
     non_empty_fields = [
@@ -829,24 +1426,40 @@ def build_missing_row_explanation(
         for field_name in source_fields
         if any(record.get(field_name) not in (None, "") for _, record in periods)
     ]
+    non_empty_field_labels = source_field_labels(template_kind, statement_type, tuple(non_empty_fields))
     if not non_empty_fields:
         return MissingRowExplanation(
             sheet_name=sheet_name,
             row_index=row_index,
             label=label,
-            category="本期未披露数值",
-            detail=f"接口字段存在，但所选年度没有披露值：{', '.join(present_fields)}。",
+            category="接口字段存在但所选年度无值",
+            detail=f"当前已接入接口里能看到对应字段，但这次导出的所有年度都没有披露值：{', '.join(present_field_labels)}。",
+        )
+
+    if resolver_type == "aggregate_only":
+        return MissingRowExplanation(
+            sheet_name=sheet_name,
+            row_index=row_index,
+            label=label,
+            category="接口只有汇总值、没有拆分字段",
+            detail=f"在当前已接入并核过的接口范围里，只找到了汇总字段：{', '.join(non_empty_field_labels)}；没有足够稳定的拆分字段可安全填到这一行。",
+        )
+
+    if resolver_type == "formula_required":
+        return MissingRowExplanation(
+            sheet_name=sheet_name,
+            row_index=row_index,
+            label=label,
+            category="需要公式但当前未实现",
+            detail=f"接口里已有相关字段：{', '.join(non_empty_field_labels)}，但还缺安全的计算公式。",
         )
 
     return MissingRowExplanation(
         sheet_name=sheet_name,
         row_index=row_index,
         label=label,
-        category="已有字段但需补充计算",
-        detail=(
-            f"已找到来源字段 {', '.join(non_empty_fields)}，"
-            f"但当前 {resolver_kind(resolver)} 规则没有产出结果，通常需要补拆分或公式。"
-        ),
+        category="需要公式但当前未实现",
+        detail=f"已找到来源字段：{', '.join(non_empty_field_labels)}，但当前规则还不能安全产出结果。",
     )
 
 
@@ -885,6 +1498,8 @@ def auto_adjust_sheet_widths(sheet, layout: SheetLayout | None = None) -> None:
         width = max_width + padding
         if column == 1:
             width = min(max(width, 18), 28)
+        if layout is not None and column == layout.note_col:
+            width = min(max(width, 18), 30)
         if layout is not None and column >= layout.data_start_col:
             width = max(width, 12)
         if column == 1:
@@ -892,21 +1507,33 @@ def auto_adjust_sheet_widths(sheet, layout: SheetLayout | None = None) -> None:
         else:
             sheet.column_dimensions[letter].width = min(width, 42)
 
-    wrap_first_column_and_adjust_row_heights(sheet)
+    wrap_label_and_note_columns_and_adjust_row_heights(sheet, layout)
 
 
-def wrap_first_column_and_adjust_row_heights(sheet) -> None:
+def wrap_label_and_note_columns_and_adjust_row_heights(sheet, layout: SheetLayout | None = None) -> None:
     first_col_width = float(sheet.column_dimensions["A"].width or 18)
     usable_width = max(first_col_width - 2, 8)
+    note_col_width = None
+    note_letter = None
+    if layout is not None:
+        note_letter = get_column_letter(layout.note_col)
+        note_col_width = max(float(sheet.column_dimensions[note_letter].width or 18) - 2, 10)
 
     for row in range(1, sheet.max_row + 1):
         cell = sheet.cell(row, 1)
         cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         text_width = display_text_width(cell.value, cell.number_format)
-        if text_width <= 0:
-            continue
+        line_count = 1
+        if text_width > 0:
+            line_count = max(line_count, int((text_width + usable_width - 1) // usable_width))
 
-        line_count = max(1, int((text_width + usable_width - 1) // usable_width))
+        if layout is not None:
+            note_cell = sheet.cell(row, layout.note_col)
+            note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            note_width = display_text_width(note_cell.value, note_cell.number_format)
+            if note_width > 0 and note_col_width is not None:
+                line_count = max(line_count, int((note_width + note_col_width - 1) // note_col_width))
+
         minimum_height = 22 if row == 1 else 20
         sheet.row_dimensions[row].height = max(minimum_height, 18 * line_count)
 
