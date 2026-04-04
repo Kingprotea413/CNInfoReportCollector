@@ -17,6 +17,10 @@ TEMPLATE_GLOB_PATTERNS = (
 TEMPLATE_ID_ALIASES = {
     "工商银行财务报表模版": "银行财务报表模版",
     "长江电力年度报告财务报表模版": "公司财务报表模版",
+    "bank": "银行财务报表模版",
+    "company": "公司财务报表模版",
+    "bank_template": "银行财务报表模版",
+    "company_template": "公司财务报表模版",
 }
 DISPLAY_NAME_OVERRIDES = {
     "银行财务报表模版": "银行",
@@ -32,21 +36,28 @@ class TemplateSpec:
     path: Path
 
 
-def template_data_files(project_root: Path | None = None) -> list[tuple[str, str]]:
-    root = project_root or resolve_project_root()
-    datas: list[tuple[str, str]] = []
-    seen: set[Path] = set()
+@dataclass(frozen=True)
+class BuiltinTemplate:
+    template_id: str
+    display_name: str
+    kind: str
+    relative_path: str
 
-    for pattern in TEMPLATE_GLOB_PATTERNS:
-        for path in sorted(root.glob(pattern)):
-            resolved = path.resolve()
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            destination = path.relative_to(root).parent.as_posix()
-            datas.append((str(path), destination))
 
-    return datas
+BUILTIN_TEMPLATES = (
+    BuiltinTemplate(
+        template_id="公司财务报表模版",
+        display_name="公司",
+        kind="company",
+        relative_path="cninfo_pipeline/templates/company_template.xlsx",
+    ),
+    BuiltinTemplate(
+        template_id="银行财务报表模版",
+        display_name="银行",
+        kind="bank",
+        relative_path="cninfo_pipeline/templates/bank_template.xlsx",
+    ),
+)
 
 
 def _normalize_marker(value: str) -> str:
@@ -86,23 +97,62 @@ def _build_display_name(path: Path, kind: str) -> str:
 @lru_cache(maxsize=1)
 def discover_templates() -> tuple[TemplateSpec, ...]:
     project_root = resolve_project_root()
-    candidates: dict[str, Path] = {}
-    for pattern in TEMPLATE_GLOB_PATTERNS:
-        for path in sorted(project_root.glob(pattern)):
-            candidates.setdefault(path.stem, path)
-
     templates: list[TemplateSpec] = []
-    for template_id, path in sorted(candidates.items(), key=lambda item: item[0]):
-        kind = _guess_template_kind(path)
+    seen_paths: set[Path] = set()
+    seen_template_ids: set[str] = set()
+
+    for builtin in BUILTIN_TEMPLATES:
+        path = (project_root / builtin.relative_path).resolve()
+        if not path.exists():
+            continue
         templates.append(
             TemplateSpec(
-                template_id=template_id,
-                display_name=_build_display_name(path, kind),
-                kind=kind,
+                template_id=builtin.template_id,
+                display_name=builtin.display_name,
+                kind=builtin.kind,
                 path=path,
             )
         )
+        seen_paths.add(path)
+        seen_template_ids.add(builtin.template_id)
+
+    for pattern in TEMPLATE_GLOB_PATTERNS:
+        for path in sorted(project_root.glob(pattern)):
+            resolved = path.resolve()
+            if resolved in seen_paths:
+                continue
+            template_id = TEMPLATE_ID_ALIASES.get(path.stem, path.stem)
+            if template_id in seen_template_ids:
+                continue
+            kind = _guess_template_kind(resolved)
+            templates.append(
+                TemplateSpec(
+                    template_id=template_id,
+                    display_name=_build_display_name(path, kind),
+                    kind=kind,
+                    path=resolved,
+                )
+            )
+            seen_paths.add(resolved)
+            seen_template_ids.add(template_id)
+
     return tuple(templates)
+
+
+def template_data_files(project_root: Path | None = None) -> list[tuple[str, str]]:
+    root = project_root or resolve_project_root()
+    datas: list[tuple[str, str]] = []
+    seen: set[Path] = set()
+
+    for template in discover_templates():
+        resolved = template.path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        destination = resolved.relative_to(root).parent.as_posix()
+        datas.append((str(resolved), destination))
+
+    return datas
 
 
 def available_template_ids() -> tuple[str, ...]:
