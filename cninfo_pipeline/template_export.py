@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter
 
 from .client import CompanyRecord
 from .constants import DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
+from .official_source import official_label_keys
 from .paths import ensure_writable_dir
 from .service import DIRECT_FIELD_MAP, normalize_unit_label
 from .template_registry import TemplateSpec, resolve_template
@@ -35,7 +36,7 @@ SECTION_FILL_BY_STATEMENT = {
 }
 SECTION_FONT = Font(bold=True, color="1F2937")
 NOTE_HEADER = "注释"
-NOTE_SUBHEADER = "推导说明"
+NOTE_SUBHEADER = "来源"
 MISSING_REASON_SHEET = "空白项说明"
 SEPARATOR_SIDE = Side(style="medium", color="000000")
 STATEMENT_SHEET_SUFFIX = {
@@ -575,9 +576,9 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("汇兑收益"): field("F023N"),
         canonical_label("其中：利息费用"): official_value("利息费用"),
         canonical_label("利息收入"): official_value("利息收入"),
-        canonical_label("加：其他收益"): official_value("其他收益"),
-        canonical_label("信用减值损失"): official_value("信用减值损失"),
-        canonical_label("资产处置收益"): official_value("资产处置收益"),
+        canonical_label("加：其他收益"): field("F062N"),
+        canonical_label("信用减值损失"): field("F063N"),
+        canonical_label("资产处置收益"): field("F065N"),
         canonical_label("三、营业利润"): field("F018N"),
         canonical_label("加:营业外收入"): field("F020N"),
         canonical_label("减:营业外支出"): field("F021N"),
@@ -595,7 +596,7 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("八、综合收益总额"): field("F039N"),
         canonical_label("归属于母公司所有者的综合收益总额"): field("F040N"),
         canonical_label("归属于少数股东的综合收益总额"): field("F041N"),
-        canonical_label("资产减值损失"): official_value("资产减值损失"),
+        canonical_label("资产减值损失"): field("F064N"),
     }
 )
 
@@ -843,27 +844,12 @@ def describe_resolver(template_kind: str, statement_type: str, resolver: Resolve
         return None
 
     kind = resolver_kind(resolver)
-    source_fields = resolver_source_fields(resolver)
-    source_labels = resolver_source_labels(resolver)
     if kind == "official":
-        if not source_labels:
-            return "官网年报：同名项目"
-        return "官网年报：%s" % " / ".join(source_labels)
-    if kind == "official_sum":
-        if not source_labels:
-            return "推导：官网年报项目求和"
-        return "推导：%s" % " + ".join(f"官网年报[{label}]" for label in source_labels)
-    if not source_fields or kind not in {"sum", "subtract", "sum_available"}:
-        return None
-
-    labels = source_field_labels(template_kind, statement_type, source_fields)
-    if kind == "sum":
-        return "推导：%s" % " + ".join(labels)
-    if kind == "subtract":
-        head, *tail = labels
-        return "推导：%s - %s" % (head, " - ".join(tail))
-    if kind == "sum_available":
-        return "推导：按有值项求和（%s）" % " + ".join(labels)
+        return "PDF年报"
+    if kind in {"sum", "subtract", "sum_available", "official_sum"}:
+        return "推导"
+    if kind in {"field", "first_available"}:
+        return "API接口"
     return None
 
 
@@ -925,18 +911,20 @@ def export_template_workbook(
         if not records:
             continue
 
-        attach_official_overrides(
-            company=company,
-            template=template,
-            statement_type=statement_type,
-            periods=records,
-            official_provider=official_provider,
-        )
         layout = prepare_sheet_layout(sheet, normalized_unit_label, len(records))
         periods = records[: layout.period_count]
         write_period_headers(sheet, layout, periods, normalized_unit_label)
         clear_period_cells(sheet, layout)
         normalize_template_labels(sheet, template, statement_type)
+        attach_official_overrides(
+            company=company,
+            template=template,
+            statement_type=statement_type,
+            periods=periods,
+            official_provider=official_provider,
+            sheet=sheet,
+            layout=layout,
+        )
         sheet_missing_rows, covered_fields, template_label_keys = fill_statement_sheet(
             sheet=sheet,
             layout=layout,
@@ -976,11 +964,12 @@ def attach_official_overrides(
     statement_type: str,
     periods: list[tuple[str, dict]],
     official_provider: "OfficialAnnualReportSource | None",
+    sheet,
+    layout: SheetLayout,
 ) -> None:
     if official_provider is None:
         return
-    if (template.kind, statement_type) not in {("company", "income"), ("bank", "balance")}:
-        return
+    requested_labels = collect_requested_official_labels(sheet, layout)
 
     for period_end, record in periods:
         values = official_provider.get_statement_overrides(
@@ -988,11 +977,60 @@ def attach_official_overrides(
             template_kind=template.kind,
             statement_type=statement_type,
             period_end=period_end,
+            requested_labels=requested_labels,
         )
         if not values:
             continue
         official_rows = record.setdefault("__official_rows__", {})
-        official_rows.update({canonical_label(label): value for label, value in values.items()})
+        for label, value in values.items():
+            for label_key in official_label_keys(label, template_kind=template.kind, statement_type=statement_type):
+                official_rows[label_key] = value
+
+
+def collect_requested_official_labels(sheet, layout: SheetLayout) -> list[str]:
+    labels: list[str] = []
+    for row in range(layout.data_start_row, sheet.max_row + 1):
+        value = sheet.cell(row, 1).value
+        if value in (None, ""):
+            continue
+        labels.append(str(value).strip())
+    return labels
+
+
+def official_value_for_label(record: dict, label_key: str) -> object | None:
+    return record.get("__official_rows__", {}).get(label_key)
+
+
+def classify_row_source(label_key: str, resolver: Resolver | None, periods: list[tuple[str, dict]]) -> str | None:
+    if resolver is None or is_placeholder_resolver(resolver):
+        return None
+
+    saw_official = False
+    saw_derived = False
+    saw_api = False
+    derived = is_derived_resolver(resolver)
+
+    for _period, record in periods:
+        official = official_value_for_label(record, label_key)
+        if official is not None:
+            saw_official = True
+            continue
+
+        value = resolver(record)
+        if value is None:
+            continue
+        if derived:
+            saw_derived = True
+        else:
+            saw_api = True
+
+    if saw_official:
+        return "PDF年报"
+    if saw_derived:
+        return "推导"
+    if saw_api:
+        return "API接口"
+    return None
 
 
 def select_annual_records(records: list[dict], date_key: str) -> list[tuple[str, dict]]:
@@ -1307,7 +1345,7 @@ def append_supplemental_section(
         note_cell = sheet.cell(row_index, layout.note_col)
         note_cell.value = note_text
         note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if note_text:
+        if note_text == "推导":
             note_cell.fill = DERIVED_FILL
         for period_index, value in enumerate(values):
             cell = sheet.cell(row_index, layout.data_start_col + period_index)
@@ -1345,10 +1383,10 @@ def fill_statement_sheet(
         resolver = resolve_row_resolver(template.kind, statement_type, label_key, occurrences[label_key])
         apply_section_style(sheet, row, statement_type, raw_label, resolver)
         note_cell = sheet.cell(row, layout.note_col)
-        note_text = describe_resolver(template.kind, statement_type, resolver)
+        note_text = classify_row_source(label_key, resolver, periods)
         note_cell.value = note_text
         note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if note_text:
+        if note_text == "推导":
             note_cell.fill = DERIVED_FILL
         if resolver is not None and not is_placeholder_resolver(resolver):
             covered_fields.update(resolver_source_fields(resolver))
@@ -1368,7 +1406,9 @@ def fill_statement_sheet(
 
         resolved_any_value = False
         for offset, (_period, record) in enumerate(periods):
-            value = resolver(record)
+            official_value = official_value_for_label(record, label_key)
+            used_official = official_value is not None
+            value = official_value if used_official else resolver(record)
             cell = sheet.cell(row, layout.data_start_col + offset)
             resolved_any_value = (
                 write_resolved_value(
@@ -1376,7 +1416,7 @@ def fill_statement_sheet(
                     value,
                     unit_scale,
                     label_key,
-                    derived=is_derived_resolver(resolver),
+                    derived=is_derived_resolver(resolver) and not used_official,
                 )
                 or resolved_any_value
             )

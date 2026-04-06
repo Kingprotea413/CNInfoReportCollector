@@ -12,6 +12,7 @@ from cninfo_pipeline.client import CompanyRecord
 from cninfo_pipeline.official_source import (
     extract_bank_balance_values_from_text,
     extract_company_income_values_from_text,
+    extract_statement_values_from_text,
 )
 from cninfo_pipeline.service import (
     AnnualReportPipeline,
@@ -294,9 +295,9 @@ class ServiceTests(unittest.TestCase):
         ]
         official_provider = MagicMock()
         official_provider.get_statement_overrides.side_effect = lambda *_args, **kwargs: {
-            "利息费用": 500_000 if kwargs["period_end"] == "2024-12-31" else 400_000,
+            "其中：利息费用": 500_000 if kwargs["period_end"] == "2024-12-31" else 400_000,
             "利息收入": 200_000 if kwargs["period_end"] == "2024-12-31" else 100_000,
-            "其他收益": 120_000 if kwargs["period_end"] == "2024-12-31" else 110_000,
+            "加：其他收益": 120_000 if kwargs["period_end"] == "2024-12-31" else 110_000,
             "信用减值损失": -50_000 if kwargs["period_end"] == "2024-12-31" else -40_000,
             "资产减值损失": -30_000 if kwargs["period_end"] == "2024-12-31" else -20_000,
         }
@@ -329,7 +330,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(balance_sheet["A1"].value, "报表日期")
             self.assertEqual(balance_sheet["A2"].value, "单位")
             self.assertEqual(balance_sheet["B1"].value, "注释")
-            self.assertEqual(balance_sheet["B2"].value, "推导说明")
+            self.assertEqual(balance_sheet["B2"].value, "来源")
             self.assertEqual(balance_sheet["C2"].value, "万元")
             self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(balance_sheet["D1"].value), "2023-12-31")
@@ -353,7 +354,8 @@ class ServiceTests(unittest.TestCase):
             extra_gain_row = find_row_index(income_sheet, "加：其他收益")
             self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
             interest_row = find_row_index(income_sheet, "其中：利息费用")
-            self.assertEqual(income_sheet.cell(interest_row, 2).value, "官网年报：利息费用")
+            self.assertEqual(income_sheet.cell(interest_row, 2).value, "PDF年报")
+            self.assertEqual(income_sheet.cell(extra_gain_row, 2).value, "PDF年报")
             income_labels = {income_sheet.cell(row, 1).value for row in range(1, income_sheet.max_row + 1)}
             self.assertNotIn("营业收入", income_labels)
 
@@ -470,6 +472,38 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(values["发放贷款及垫款"], 29_712_359_000_000)
         self.assertEqual(values["现金及存放中央银行款项"], 3_674_558_000_000)
         self.assertEqual(values["买入返售金融资产"], 530_737_000_000)
+
+    def test_extract_statement_values_from_text_matches_company_balance_labels(self) -> None:
+        text = """
+合并资产负债表
+单位：万元
+货币资金 123,456 100,000
+应收票据 4,321 3,210
+"""
+        values = extract_statement_values_from_text(
+            text,
+            template_kind="company",
+            statement_type="balance",
+            requested_labels=["货币资金", "应收票据"],
+        )
+        self.assertEqual(values["货币资金"], 1_234_560_000)
+        self.assertEqual(values["应收票据"], 43_210_000)
+
+    def test_extract_statement_values_from_text_matches_bank_income_labels(self) -> None:
+        text = """
+合并利润表
+单位：百万元
+利息收入 1,234 1,111
+手续费及佣金收入 222 200
+"""
+        values = extract_statement_values_from_text(
+            text,
+            template_kind="bank",
+            statement_type="income",
+            requested_labels=["其中：利息收入", "其中:手续费及佣金收入"],
+        )
+        self.assertEqual(values["其中：利息收入"], 1_234_000_000)
+        self.assertEqual(values["其中:手续费及佣金收入"], 222_000_000)
 
     def test_export_template_workbook_bank_template_inserts_year_headers(self) -> None:
         company = CompanyRecord(seccode="601398", secname="工商银行", orgname="中国工商银行股份有限公司")
@@ -706,7 +740,7 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(
                 cash_sheet.cell(merged_payroll_tax_row, 3).fill.fgColor.rgb.endswith(DERIVED_FILL.fgColor.rgb[-6:])
             )
-            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 2).value, "推导：支付给职工以及为职工支付的现金 + 支付的各项税费")
+            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 2).value, "推导")
             other_invest_row = find_row_index(cash_sheet, "收到其他与投资活动有关的现金")
             self.assertEqual(cash_sheet.cell(other_invest_row, 3).value, 3)
             capex_row = find_row_index(cash_sheet, "购建固定资产、无形资产和其他长期资产支付的现金")
@@ -730,6 +764,96 @@ class ServiceTests(unittest.TestCase):
             self.assertIn("资产：", reason_labels)
             self.assertIn("一、经营活动产生的现金流量：", reason_labels)
 
+            workbook.close()
+
+    def test_export_template_workbook_prefers_exact_official_row_matches(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record("2024-12-31", F006N=10_000_000, F038N=28_000_000, F061N=15_000_000),
+            build_balance_record("2023-12-31", F006N=8_000_000, F038N=24_000_000, F061N=12_000_000),
+        ]
+        income_records = [
+            build_statement_record("2024-12-31", F006N=30_000_000, F035N=30_000_000, F018N=10_000_000),
+            build_statement_record("2023-12-31", F006N=25_000_000, F035N=25_000_000, F018N=8_000_000),
+        ]
+        cash_flow_records = [
+            build_statement_record("2024-12-31", F015N=5_000_000, F041N=9_000_000),
+            build_statement_record("2023-12-31", F015N=4_000_000, F041N=8_000_000),
+        ]
+        official_provider = MagicMock()
+
+        def provider(_company, *, statement_type: str, period_end: str, **_kwargs):
+            if statement_type != "balance":
+                return {}
+            return {"货币资金": 12_000_000 if period_end == "2024-12-31" else 9_000_000}
+
+        official_provider.get_statement_overrides.side_effect = provider
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=income_records,
+                cash_flow_records=cash_flow_records,
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+                official_provider=official_provider,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            cash_row = find_row_index(balance_sheet, "货币资金")
+            self.assertEqual(balance_sheet.cell(cash_row, 3).value, 1200)
+            self.assertEqual(balance_sheet.cell(cash_row, 4).value, 900)
+            self.assertEqual(balance_sheet.cell(cash_row, 2).value, "PDF年报")
+            workbook.close()
+
+    def test_export_template_workbook_falls_back_to_api_when_official_income_missing(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record("2024-12-31", F006N=10_000_000, F038N=28_000_000, F061N=15_000_000),
+        ]
+        income_records = [
+            build_statement_record(
+                "2024-12-31",
+                F006N=30_000_000,
+                F035N=30_000_000,
+                F062N=12_000_000,
+                F063N=-300_000,
+                F064N=-500_000,
+                F065N=200_000,
+            ),
+        ]
+        cash_flow_records = [build_statement_record("2024-12-31", F015N=5_000_000, F041N=9_000_000)]
+        official_provider = MagicMock()
+        official_provider.get_statement_overrides.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=income_records,
+                cash_flow_records=cash_flow_records,
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+                official_provider=official_provider,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            income_sheet = workbook[build_export_sheet_title(company.secname, "利润表")]
+            for label, expected in {
+                "加：其他收益": 1200,
+                "信用减值损失": -30,
+                "资产减值损失": -50,
+                "资产处置收益": 20,
+            }.items():
+                row = find_row_index(income_sheet, label)
+                self.assertEqual(income_sheet.cell(row, 3).value, expected)
+                self.assertEqual(income_sheet.cell(row, 2).value, "API接口")
             workbook.close()
 
     def test_export_template_workbook_explains_missing_rows(self) -> None:
