@@ -350,15 +350,10 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(iso_date(income_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(income_sheet["D1"].value), "2023-12-31")
             self.assertEqual(income_sheet["A3"].value, "一、营业收入")
-<<<<<<< HEAD
             extra_gain_row = find_row_index(income_sheet, "加：其他收益")
             self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
             interest_row = find_row_index(income_sheet, "其中：利息费用")
             self.assertEqual(income_sheet.cell(interest_row, 2).value, "官网年报：利息费用")
-=======
-            extra_gain_row = find_row_index(income_sheet, "其他收益")
-            self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
->>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
             income_labels = {income_sheet.cell(row, 1).value for row in range(1, income_sheet.max_row + 1)}
             self.assertNotIn("营业收入", income_labels)
 
