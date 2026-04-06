@@ -802,7 +802,7 @@ class ServiceTests(unittest.TestCase):
 
             workbook.close()
 
-    def test_export_template_workbook_prefers_exact_official_row_matches(self) -> None:
+    def test_export_template_workbook_company_balance_prefers_api_over_official_rows(self) -> None:
         company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
         template = resolve_template("公司")
         balance_records = [
@@ -842,9 +842,9 @@ class ServiceTests(unittest.TestCase):
             balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
             note_col = find_column_index(balance_sheet, "注释")
             cash_row = find_row_index(balance_sheet, "货币资金")
-            self.assertEqual(balance_sheet.cell(cash_row, 2).value, 1200)
-            self.assertEqual(balance_sheet.cell(cash_row, 3).value, 900)
-            self.assertEqual(balance_sheet.cell(cash_row, note_col).value, "PDF年报（与API不一致）")
+            self.assertEqual(balance_sheet.cell(cash_row, 2).value, 1000)
+            self.assertEqual(balance_sheet.cell(cash_row, 3).value, 800)
+            self.assertEqual(balance_sheet.cell(cash_row, note_col).value, "API接口")
             workbook.close()
 
     def test_export_template_workbook_falls_back_to_api_when_official_income_missing(self) -> None:
@@ -930,7 +930,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(income_sheet.cell(row, note_col).value, "PDF年报（与API不一致）")
             workbook.close()
 
-    def test_export_template_workbook_uses_occurrence_specific_official_rows(self) -> None:
+    def test_export_template_workbook_uses_occurrence_specific_company_balance_resolvers(self) -> None:
         company = CompanyRecord(
             seccode="600900",
             secname="\u957f\u6c5f\u7535\u529b",
@@ -949,14 +949,6 @@ class ServiceTests(unittest.TestCase):
                 F061N=15_000_000,
             )
         ]
-        official_provider = MagicMock()
-        official_provider.get_statement_overrides.return_value = {
-            ("\u5176\u4ed6\u5e94\u6536\u6b3e", 1): 30_000_000,
-            ("\u5176\u4ed6\u5e94\u6536\u6b3e", 2): 40_000_000,
-            ("\u5176\u4ed6\u5e94\u4ed8\u6b3e", 1): 100_000_000,
-            ("\u5176\u4ed6\u5e94\u4ed8\u6b3e", 2): 70_000_000,
-        }
-
         with tempfile.TemporaryDirectory() as tmpdir:
             workbook_path = export_template_workbook(
                 company=company,
@@ -966,19 +958,235 @@ class ServiceTests(unittest.TestCase):
                 output_dir=tmpdir,
                 unit_label="\u4e07\u5143",
                 template_id=template.template_id,
-                official_provider=official_provider,
             )
 
             workbook = load_workbook(workbook_path, data_only=False)
             balance_sheet = workbook[build_export_sheet_title(company.secname, "\u8d44\u4ea7\u8d1f\u503a\u8868")]
 
             receivable_rows = find_row_indices(balance_sheet, "\u5176\u4ed6\u5e94\u6536\u6b3e")
-            self.assertEqual(balance_sheet.cell(receivable_rows[0], 2).value, 3000)
-            self.assertEqual(balance_sheet.cell(receivable_rows[1], 2).value, 4000)
+            self.assertEqual(balance_sheet.cell(receivable_rows[0], 2).value, 300)
+            self.assertEqual(balance_sheet.cell(receivable_rows[1], 2).value, 400)
 
             payable_rows = find_row_indices(balance_sheet, "\u5176\u4ed6\u5e94\u4ed8\u6b3e")
-            self.assertEqual(balance_sheet.cell(payable_rows[0], 2).value, 10000)
-            self.assertEqual(balance_sheet.cell(payable_rows[1], 2).value, 7000)
+            self.assertEqual(balance_sheet.cell(payable_rows[0], 2).value, 1000)
+            self.assertEqual(balance_sheet.cell(payable_rows[1], 2).value, 700)
+            workbook.close()
+
+    def test_export_template_workbook_company_balance_hides_duplicate_parent_rows(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record(
+                "2024-12-31",
+                F008N=1_000_000,
+                F009N=2_000_000,
+                F025N=30_000_000,
+                F041N=4_000_000,
+                F042N=5_000_000,
+                F043N=7_000_000,
+                F115N=7_000_000,
+                F038N=100_000_000,
+                F061N=60_000_000,
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=[],
+                cash_flow_records=[],
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            note_col = find_column_index(balance_sheet, "注释")
+
+            for label in ("应收票据及应收账款", "固定资产及清理", "应付票据及应付账款", "预收款项"):
+                row = find_row_index(balance_sheet, label)
+                self.assertIsNone(balance_sheet.cell(row, 2).value)
+                self.assertIsNone(balance_sheet.cell(row, note_col).value)
+
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "应收票据"), 2).value, 100)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "应收账款"), 2).value, 200)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "固定资产净额"), 2).value, 3000)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "应付票据"), 2).value, 400)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "应付账款"), 2).value, 500)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "合同负债"), 2).value, 700)
+            workbook.close()
+
+    def test_export_template_workbook_company_balance_uses_api_when_pdf_split_rows_conflict(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record(
+                "2024-12-31",
+                F008N=1_000_000,
+                F009N=2_000_000,
+                F012N=300_000,
+                F013N=400_000,
+                F041N=500_000,
+                F042N=6_000_000,
+                F046N=700_000,
+                F047N=800_000,
+                F038N=100_000_000,
+                F061N=60_000_000,
+            )
+        ]
+        official_provider = MagicMock()
+        official_provider.get_statement_overrides.return_value = {
+            "应收票据": 3_000_000,
+            "应收账款": 3_000_000,
+            "应收利息": 500_000,
+            "应收股利": 500_000,
+            "应付票据": 6_500_000,
+            "应付账款": 6_500_000,
+            "应付利息": 1_500_000,
+            "应付股利": 1_500_000,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=[],
+                cash_flow_records=[],
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+                official_provider=official_provider,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            note_col = find_column_index(balance_sheet, "注释")
+
+            for label, expected in {
+                "应收票据": 100,
+                "应收账款": 200,
+                "应收利息": 30,
+                "应收股利": 40,
+                "应付票据": 50,
+                "应付账款": 600,
+                "应付利息": 70,
+                "应付股利": 80,
+            }.items():
+                row = find_row_index(balance_sheet, label)
+                self.assertEqual(balance_sheet.cell(row, 2).value, expected)
+                self.assertEqual(balance_sheet.cell(row, note_col).value, "API接口")
+
+            workbook.close()
+
+    def test_export_template_workbook_company_balance_ignores_pdf_for_direct_rows(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record(
+                "2024-12-31",
+                F010N=900_000,
+                F011N=3_000_000,
+                F014N=1_500_000,
+                F015N=800_000,
+                F023N=7_000_000,
+                F038N=100_000_000,
+                F042N=5_000_000,
+                F047N=2_000_000,
+                F048N=10_000_000,
+                F061N=60_000_000,
+                F115N=4_000_000,
+            )
+        ]
+        official_provider = MagicMock()
+        official_provider.get_statement_overrides.return_value = {
+            "交易性金融资产": 2_000_000,
+            "衍生金融资产": 2_000_000,
+            "应收款项融资": 900_000,
+            "预付款项": 900_000,
+            "买入返售金融资产": 800_000,
+            "存货": 800_000,
+            "长期应收款": 7_000_000,
+            "长期股权投资": 7_000_000,
+            "预收款项": 4_000_000,
+            "合同负债": 4_000_000,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=[],
+                cash_flow_records=[],
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+                official_provider=official_provider,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            note_col = find_column_index(balance_sheet, "注释")
+
+            self.assertIsNone(balance_sheet.cell(find_row_index(balance_sheet, "交易性金融资产"), 2).value)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "衍生金融资产"), 2).value, 200)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "预付款项"), 2).value, 90)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "存货"), 2).value, 80)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "长期股权投资"), 2).value, 700)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "合同负债"), 2).value, 400)
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "衍生金融资产"), note_col).value, "PDF年报")
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "预付款项"), note_col).value, "API接口")
+            self.assertEqual(balance_sheet.cell(find_row_index(balance_sheet, "存货"), note_col).value, "API接口")
+
+            workbook.close()
+
+    def test_export_template_workbook_company_balance_fills_verified_pdf_only_rows(self) -> None:
+        company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
+        template = resolve_template("公司")
+        balance_records = [
+            build_balance_record(
+                "2024-12-31",
+                F038N=100_000_000,
+                F061N=60_000_000,
+            )
+        ]
+        official_provider = MagicMock()
+        official_provider.get_statement_overrides.return_value = {
+            "衍生金融资产": 2_000_000,
+            "应收股利": 3_000_000,
+            "合同资产": 4_000_000,
+            "债权投资": 5_000_000,
+            "应付票据": 6_000_000,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workbook_path = export_template_workbook(
+                company=company,
+                balance_records=balance_records,
+                income_records=[],
+                cash_flow_records=[],
+                output_dir=tmpdir,
+                unit_label="万元",
+                template_id=template.template_id,
+                official_provider=official_provider,
+            )
+
+            workbook = load_workbook(workbook_path, data_only=False)
+            balance_sheet = workbook[build_export_sheet_title(company.secname, "资产负债表")]
+            note_col = find_column_index(balance_sheet, "注释")
+
+            for label, expected in {
+                "衍生金融资产": 200,
+                "应收股利": 300,
+                "合同资产": 400,
+                "债权投资": 500,
+                "应付票据": 600,
+            }.items():
+                row = find_row_index(balance_sheet, label)
+                self.assertEqual(balance_sheet.cell(row, 2).value, expected)
+                self.assertEqual(balance_sheet.cell(row, note_col).value, "PDF年报")
+
             workbook.close()
 
     def test_export_template_workbook_explains_missing_rows(self) -> None:

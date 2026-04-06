@@ -223,6 +223,28 @@ def official_value(*labels: str) -> Resolver:
     )
 
 
+def field_or_official(field_name: str, *labels: str) -> Resolver:
+    canonical_labels = tuple(canonical_label(label) for label in labels)
+
+    def resolver(record: dict) -> object | None:
+        value = record.get(field_name)
+        if value is not None:
+            return value
+
+        official_rows = record.get("__official_rows__", {})
+        for label_key in canonical_labels:
+            if label_key in official_rows:
+                return official_rows[label_key]
+        return None
+
+    return _resolver_with_metadata(
+        resolver,
+        kind="field_or_official",
+        source_fields=(field_name,),
+        source_labels=tuple(labels),
+    )
+
+
 def official_sum(*labels: str) -> Resolver:
     canonical_labels = tuple(canonical_label(label) for label in labels)
 
@@ -313,27 +335,40 @@ NON_SCALED_LABELS = {
 
 OFFICIAL_OVERRIDE_GUARDED_LABELS = {
     canonical_label("所有者权益(或股东权益)合计"),
+    canonical_label("应收票据"),
+    canonical_label("应收账款"),
+    canonical_label("应收利息"),
+    canonical_label("应收股利"),
+    canonical_label("应付票据"),
+    canonical_label("应付账款"),
+    canonical_label("应付利息"),
+    canonical_label("应付股利"),
+}
+
+OFFICIAL_OVERRIDE_DISABLED_STATEMENTS = {
+    ("company", "balance"),
 }
 
 
 COMPANY_BALANCE_RESOLVERS: dict[str, Resolver] = {
     canonical_label("货币资金"): field("F006N"),
     canonical_label("交易性金融资产"): field("F117N"),
-    canonical_label("衍生金融资产"): field("F080N"),
+    canonical_label("衍生金融资产"): field_or_official("F080N", "衍生金融资产"),
     canonical_label("应收票据"): field("F008N"),
     canonical_label("应收账款"): field("F009N"),
     canonical_label("应收款项融资"): field("F110N"),
     canonical_label("预付款项"): field("F010N"),
     canonical_label("其他应收款"): field("F011N"),
     canonical_label("应收利息"): field("F012N"),
-    canonical_label("应收股利"): field("F013N"),
+    canonical_label("应收股利"): field_or_official("F013N", "应收股利"),
     canonical_label("买入返售金融资产"): field("F016N"),
     canonical_label("存货"): field("F015N"),
-    canonical_label("合同资产"): field("F119N"),
+    canonical_label("合同资产"): field_or_official("F119N", "合同资产"),
     canonical_label("一年内到期的非流动资产"): field("F017N"),
     canonical_label("其他流动资产"): field("F018N"),
     canonical_label("流动资产合计"): field("F019N"),
     canonical_label("发放贷款和垫款"): field("F113N"),
+    canonical_label("债权投资"): official_value("债权投资"),
     canonical_label("长期应收款"): field("F022N"),
     canonical_label("长期股权投资"): field("F023N"),
     canonical_label("其他权益工具投资"): field("F111N"),
@@ -353,7 +388,7 @@ COMPANY_BALANCE_RESOLVERS: dict[str, Resolver] = {
     canonical_label("短期借款"): field("F039N"),
     canonical_label("交易性金融负债"): field("F090N"),
     canonical_label("衍生金融负债"): field("F091N"),
-    canonical_label("应付票据"): field("F041N"),
+    canonical_label("应付票据"): field_or_official("F041N", "应付票据"),
     canonical_label("应付账款"): field("F042N"),
     canonical_label("预收款项"): field("F043N"),
     canonical_label("合同负债"): field("F115N"),
@@ -567,7 +602,7 @@ COMPANY_BALANCE_RESOLVERS.update(
     {
         canonical_label("应收票据及应收账款"): sum_fields("F008N", "F009N"),
         canonical_label("划分为持有待售的资产"): field("F118N"),
-        canonical_label("债权投资"): aggregate_only("F022N"),
+        canonical_label("债权投资"): official_value("债权投资"),
         canonical_label("其他债权投资"): aggregate_only("F022N"),
         canonical_label("可供出售金融资产"): aggregate_only("F111N"),
         canonical_label("持有至到期投资"): aggregate_only("F112N"),
@@ -929,6 +964,16 @@ STATEMENT_RESOLVERS: dict[tuple[str, str], dict[str, Resolver]] = {
     ("bank", "cash"): BANK_CASH_RESOLVERS,
 }
 
+COMPANY_BALANCE_DEDUP_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("应收票据及应收账款", ("应收票据", "应收账款")),
+    ("固定资产及清理", ("固定资产净额", "固定资产清理")),
+    ("应付票据及应付账款", ("应付票据", "应付账款")),
+)
+
+COMPANY_BALANCE_PREFERRED_LABELS: tuple[tuple[str, str], ...] = (
+    ("预收款项", "合同负债"),
+)
+
 
 MANUAL_FIELD_CATALOG: tuple[FieldCatalogItem, ...] = (
     FieldCatalogItem("F048N", "其他应付款合计", "company", "balance"),
@@ -1098,6 +1143,12 @@ def export_template_workbook(
             unit_scale=unit_scale,
         )
         missing_rows.extend(sheet_missing_rows)
+        postprocess_statement_sheet(
+            sheet=sheet,
+            layout=layout,
+            template=template,
+            statement_type=statement_type,
+        )
         append_supplemental_section(
             sheet=sheet,
             layout=layout,
@@ -1177,11 +1228,15 @@ def official_value_for_label(record: dict, label_key: str, occurrence: int = 1) 
 
 
 def select_official_value(
+    template_kind: str,
+    statement_type: str,
     record: dict,
     label_key: str,
     occurrence: int,
     resolver: Resolver | None,
 ) -> object | None:
+    if (template_kind, statement_type) in OFFICIAL_OVERRIDE_DISABLED_STATEMENTS:
+        return None
     official = official_value_for_label(record, label_key, occurrence)
     if official is None:
         return None
@@ -1191,7 +1246,7 @@ def select_official_value(
     api_value = resolver(record)
     if not isinstance(official, (int, float)) or not isinstance(api_value, (int, float)):
         return official
-    if abs(official - api_value) > max(abs(api_value) * 0.1, 1.0):
+    if abs(official - api_value) > max(abs(api_value) * 0.01, 1.0):
         return None
     return official
 
@@ -1207,14 +1262,42 @@ def classify_row_source(
     if resolver is None or is_placeholder_resolver(resolver):
         return None
 
+    kind = resolver_kind(resolver)
     derived = is_derived_resolver(resolver)
 
     for _period, record in periods:
-        official = select_official_value(record, label_key, occurrence, resolver)
+        official = select_official_value(
+            template_kind,
+            statement_type,
+            record,
+            label_key,
+            occurrence,
+            resolver,
+        )
         if official is not None:
-            if has_pdf_api_conflict(label_key, occurrence, resolver, [(None, record)]):
+            if has_pdf_api_conflict(
+                template_kind,
+                statement_type,
+                label_key,
+                occurrence,
+                resolver,
+                [(None, record)],
+            ):
                 return "PDF年报（与API不一致）"
             return "PDF年报"
+
+        if kind == "official":
+            value = resolver(record)
+            if value is not None:
+                return "PDF年报"
+            continue
+
+        if kind == "field_or_official":
+            api_has_value = any(record.get(field_name) is not None for field_name in resolver_source_fields(resolver))
+            value = resolver(record)
+            if value is None:
+                continue
+            return "API接口" if api_has_value else "PDF年报"
 
         value = resolver(record)
         if value is None:
@@ -1226,6 +1309,8 @@ def classify_row_source(
 
 
 def has_pdf_api_conflict(
+    template_kind: str,
+    statement_type: str,
     label_key: str,
     occurrence: int,
     resolver: Resolver | None,
@@ -1235,7 +1320,14 @@ def has_pdf_api_conflict(
         return False
 
     for _period, record in periods:
-        official = select_official_value(record, label_key, occurrence, resolver)
+        official = select_official_value(
+            template_kind,
+            statement_type,
+            record,
+            label_key,
+            occurrence,
+            resolver,
+        )
         api_value = resolver(record)
         if official is None or api_value is None:
             continue
@@ -1584,6 +1676,68 @@ def append_supplemental_section(
             )
 
 
+def postprocess_statement_sheet(
+    *,
+    sheet,
+    layout: SheetLayout,
+    template: TemplateSpec,
+    statement_type: str,
+) -> None:
+    if template.kind == "company" and statement_type == "balance":
+        deduplicate_company_balance_sheet(sheet, layout)
+
+
+def deduplicate_company_balance_sheet(sheet, layout: SheetLayout) -> None:
+    for parent_label, child_labels in COMPANY_BALANCE_DEDUP_GROUPS:
+        parent_rows = find_rows_by_label(sheet, parent_label)
+        child_rows = [row for label in child_labels for row in find_rows_by_label(sheet, label)]
+        if not parent_rows or not child_rows:
+            continue
+        parent_row = parent_rows[0]
+        for column in range(layout.data_start_col, layout.note_col):
+            if any(has_visible_value(sheet.cell(child_row, column).value) for child_row in child_rows):
+                clear_export_value(sheet.cell(parent_row, column))
+        refresh_row_note(sheet, layout, parent_row)
+
+    for legacy_label, preferred_label in COMPANY_BALANCE_PREFERRED_LABELS:
+        legacy_rows = find_rows_by_label(sheet, legacy_label)
+        preferred_rows = find_rows_by_label(sheet, preferred_label)
+        if not legacy_rows or not preferred_rows:
+            continue
+        legacy_row = legacy_rows[0]
+        preferred_row = preferred_rows[0]
+        for column in range(layout.data_start_col, layout.note_col):
+            if has_visible_value(sheet.cell(preferred_row, column).value):
+                clear_export_value(sheet.cell(legacy_row, column))
+        refresh_row_note(sheet, layout, legacy_row)
+
+
+def find_rows_by_label(sheet, label: str) -> list[int]:
+    label_key = canonical_label(label)
+    return [
+        row
+        for row in range(1, sheet.max_row + 1)
+        if canonical_label(sheet.cell(row, 1).value) == label_key
+    ]
+
+
+def has_visible_value(value: object | None) -> bool:
+    return value not in (None, "")
+
+
+def clear_export_value(cell) -> None:
+    cell.value = None
+    cell.fill = PatternFill(fill_type=None)
+
+
+def refresh_row_note(sheet, layout: SheetLayout, row_index: int) -> None:
+    if any(has_visible_value(sheet.cell(row_index, column).value) for column in range(layout.data_start_col, layout.note_col)):
+        return
+    note_cell = sheet.cell(row_index, layout.note_col)
+    note_cell.value = None
+    note_cell.fill = PatternFill(fill_type=None)
+
+
 def fill_statement_sheet(
     sheet,
     layout: SheetLayout,
@@ -1639,7 +1793,14 @@ def fill_statement_sheet(
 
         resolved_any_value = False
         for offset, (_period, record) in enumerate(periods):
-            official_value = select_official_value(record, label_key, occurrences[label_key], resolver)
+            official_value = select_official_value(
+                template.kind,
+                statement_type,
+                record,
+                label_key,
+                occurrences[label_key],
+                resolver,
+            )
             used_official = official_value is not None
             value = official_value if used_official else resolver(record)
             cell = sheet.cell(row, layout.data_start_col + offset)
