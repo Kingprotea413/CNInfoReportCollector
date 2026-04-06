@@ -9,6 +9,10 @@ from unittest.mock import MagicMock, patch
 from openpyxl import Workbook, load_workbook
 
 from cninfo_pipeline.client import CompanyRecord
+from cninfo_pipeline.official_source import (
+    extract_bank_balance_values_from_text,
+    extract_company_income_values_from_text,
+)
 from cninfo_pipeline.service import (
     AnnualReportPipeline,
     build_statement_matrix,
@@ -241,10 +245,12 @@ class ServiceTests(unittest.TestCase):
         fake_cache_dir = Path("cache-dir")
         fake_output_dir = Path("exports")
         template_id = "银行财务报表模版"
+        fake_official_provider = object()
 
         with (
             patch("cninfo_pipeline.service.prepare_cache_dir", return_value=fake_cache_dir),
             patch("cninfo_pipeline.service.resolve_default_output_dir", return_value=fake_output_dir),
+            patch("cninfo_pipeline.service.OfficialAnnualReportSource", return_value=fake_official_provider),
             patch("cninfo_pipeline.template_export.export_template_workbook", return_value=fake_output) as exporter,
         ):
             result = pipeline.run(company_query="工业富联", unit_label="万元", template_id=template_id)
@@ -262,6 +268,7 @@ class ServiceTests(unittest.TestCase):
             output_dir=fake_output_dir,
             unit_label="万元",
             template_id=template_id,
+            official_provider=fake_official_provider,
         )
         self.assertEqual(result.output_path, fake_output)
         self.assertEqual(result.total_records, 2)
@@ -285,6 +292,14 @@ class ServiceTests(unittest.TestCase):
             build_statement_record("2024-12-31", F015N=5_000_000, F041N=9_000_000),
             build_statement_record("2023-12-31", F015N=4_000_000, F041N=8_000_000),
         ]
+        official_provider = MagicMock()
+        official_provider.get_statement_overrides.side_effect = lambda *_args, **kwargs: {
+            "利息费用": 500_000 if kwargs["period_end"] == "2024-12-31" else 400_000,
+            "利息收入": 200_000 if kwargs["period_end"] == "2024-12-31" else 100_000,
+            "其他收益": 120_000 if kwargs["period_end"] == "2024-12-31" else 110_000,
+            "信用减值损失": -50_000 if kwargs["period_end"] == "2024-12-31" else -40_000,
+            "资产减值损失": -30_000 if kwargs["period_end"] == "2024-12-31" else -20_000,
+        }
 
         with tempfile.TemporaryDirectory() as tmpdir:
             workbook_path = export_template_workbook(
@@ -295,6 +310,7 @@ class ServiceTests(unittest.TestCase):
                 output_dir=tmpdir,
                 unit_label="万元",
                 template_id=template.template_id,
+                official_provider=official_provider,
             )
 
             workbook = load_workbook(workbook_path, data_only=False)
@@ -334,8 +350,15 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(iso_date(income_sheet["C1"].value), "2024-12-31")
             self.assertEqual(iso_date(income_sheet["D1"].value), "2023-12-31")
             self.assertEqual(income_sheet["A3"].value, "一、营业收入")
+<<<<<<< HEAD
+            extra_gain_row = find_row_index(income_sheet, "加：其他收益")
+            self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
+            interest_row = find_row_index(income_sheet, "其中：利息费用")
+            self.assertEqual(income_sheet.cell(interest_row, 2).value, "官网年报：利息费用")
+=======
             extra_gain_row = find_row_index(income_sheet, "其他收益")
             self.assertEqual(income_sheet.cell(extra_gain_row, 3).value, 12)
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
             income_labels = {income_sheet.cell(row, 1).value for row in range(1, income_sheet.max_row + 1)}
             self.assertNotIn("营业收入", income_labels)
 
@@ -387,6 +410,71 @@ class ServiceTests(unittest.TestCase):
             cash_row = find_row_index(balance_sheet, "货币资金")
             self.assertEqual(balance_sheet.cell(cash_row, 5).value, 600)
             workbook.close()
+
+    def test_extract_company_income_values_from_text_uses_official_pdf_rows(self) -> None:
+        text = """
+中国石油天然气股份有限公司
+2024 年度合并及公司利润表
+(除特别注明外，金额单位为人民币百万元)
+财务费用  47  (12,552)  (18,091)
+其中：利息费用    20,731  24,063
+利息收入    8,799  8,288
+加：其他收益  48  20,122  21,704
+投资收益  49  11,934  9,554
+信用减值损失  51  (742)  (35)
+资产减值损失  52  (14,278)  (28,956)
+资产处置收益  53  613  498
+"""
+        values = extract_company_income_values_from_text(text)
+        self.assertEqual(values["利息费用"], 20_731_000_000)
+        self.assertEqual(values["利息收入"], 8_799_000_000)
+        self.assertEqual(values["其他收益"], 20_122_000_000)
+        self.assertEqual(values["信用减值损失"], -742_000_000)
+        self.assertEqual(values["资产减值损失"], -14_278_000_000)
+        self.assertEqual(values["资产处置收益"], 613_000_000)
+
+    def test_extract_company_income_values_from_text_avoids_topline_interest_income(self) -> None:
+        text = """
+贵州茅台酒股份有限公司 2024 年年度报告
+合并利润表
+2024 年1—12 月
+单位：元  币种：人民币
+一、营业总收入  174,144,069,958.25 150,560,330,316.45
+其中：营业收入 40 170,899,152,276.34 147,693,604,994.14
+利息收入 41 3,244,917,681.91 2,866,725,322.31
+二、营业总成本  54,523,971,452.57 46,960,889,468.54
+财务费用 46 -1,470,219,863.34 -1,789,503,701.48
+其中：利息费用  14,474,584.09 12,624,628.35
+利息收入  1,476,991,223.18 1,942,301,920.98
+加：其他收益 47 21,229,466.81 34,644,873.86
+信用减值损失（损失以“-”号填列） 50 -23,248,436.03 37,871,293.26
+资产减值损失（损失以“-”号填列）
+资产处置收益（损失以“－”号填列） 51 388,852.05 -479,736.97
+"""
+        values = extract_company_income_values_from_text(text)
+        self.assertEqual(values["利息费用"], 14_474_584.09)
+        self.assertEqual(values["利息收入"], 1_476_991_223.18)
+        self.assertEqual(values["其他收益"], 21_229_466.81)
+        self.assertEqual(values["信用减值损失"], -23_248_436.03)
+        self.assertNotIn("资产减值损失", values)
+
+    def test_extract_bank_balance_values_from_text_uses_official_pdf_rows(self) -> None:
+        text = """
+人民币百万元，百分比除外
+客户存款 37,311,778 34,836,973 33,521,174
+同业及其他金融机构存放款项 4,568,696 4,020,537 2,841,385
+拆入资金 534,551 570,428 528,473
+客户贷款及垫款净额(1) 29,712,359 55.6 27,613,781 56.6
+现金及存放中央银行款项 3,674,558 6.9 3,322,911 6.8
+买入返售款项 530,737 1.0 1,210,217 2.5
+"""
+        values = extract_bank_balance_values_from_text(text)
+        self.assertEqual(values["客户存款(吸收存款)"], 37_311_778_000_000)
+        self.assertEqual(values["其中:同业存放款项"], 4_568_696_000_000)
+        self.assertEqual(values["拆入资金"], 534_551_000_000)
+        self.assertEqual(values["发放贷款及垫款"], 29_712_359_000_000)
+        self.assertEqual(values["现金及存放中央银行款项"], 3_674_558_000_000)
+        self.assertEqual(values["买入返售金融资产"], 530_737_000_000)
 
     def test_export_template_workbook_bank_template_inserts_year_headers(self) -> None:
         company = CompanyRecord(seccode="601398", secname="工商银行", orgname="中国工商银行股份有限公司")
@@ -540,6 +628,15 @@ class ServiceTests(unittest.TestCase):
                 kind="bank",
                 path=template_path,
             )
+            official_provider = MagicMock()
+            official_provider.get_statement_overrides.side_effect = lambda *_args, **kwargs: {
+                "拆入资金": 1_200_000 if kwargs["period_end"] == "2025-12-31" else 1_000_000,
+                "其中:同业存放款项": 800_000 if kwargs["period_end"] == "2025-12-31" else 700_000,
+                "发放贷款及垫款": 2_600_000 if kwargs["period_end"] == "2025-12-31" else 2_400_000,
+                "现金及存放中央银行款项": 900_000 if kwargs["period_end"] == "2025-12-31" else 850_000,
+                "买入返售金融资产": 300_000 if kwargs["period_end"] == "2025-12-31" else 250_000,
+                "客户存款(吸收存款)": 5_200_000 if kwargs["period_end"] == "2025-12-31" else 5_000_000,
+            }
 
             with patch("cninfo_pipeline.template_export.resolve_template", return_value=template):
                 workbook_path = export_template_workbook(
@@ -550,6 +647,7 @@ class ServiceTests(unittest.TestCase):
                     output_dir=tmpdir,
                     unit_label="万元",
                     template_id=template.template_id,
+                    official_provider=official_provider,
                 )
 
             workbook = load_workbook(workbook_path, data_only=False)

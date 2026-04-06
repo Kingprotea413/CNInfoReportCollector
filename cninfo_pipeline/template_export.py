@@ -6,7 +6,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -17,6 +17,9 @@ from .constants import DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
 from .paths import ensure_writable_dir
 from .service import DIRECT_FIELD_MAP, normalize_unit_label
 from .template_registry import TemplateSpec, resolve_template
+
+if TYPE_CHECKING:
+    from .official_source import OfficialAnnualReportSource
 
 
 Resolver = Callable[[dict], object | None]
@@ -77,9 +80,11 @@ def _resolver_with_metadata(
     *,
     kind: str,
     source_fields: tuple[str, ...] = (),
+    source_labels: tuple[str, ...] = (),
 ) -> Resolver:
     setattr(resolver, "_resolver_kind", kind)
     setattr(resolver, "_source_fields", tuple(dict.fromkeys(source_fields)))
+    setattr(resolver, "_source_labels", tuple(dict.fromkeys(source_labels)))
     return resolver
 
 
@@ -91,8 +96,17 @@ def resolver_source_fields(resolver: Resolver | None) -> tuple[str, ...]:
     return tuple(getattr(resolver, "_source_fields", ()))
 
 
+<<<<<<< HEAD
+def resolver_source_labels(resolver: Resolver | None) -> tuple[str, ...]:
+    return tuple(getattr(resolver, "_source_labels", ()))
+
+
+def is_derived_resolver(resolver: Resolver | None) -> bool:
+    return resolver_kind(resolver) in {"sum", "subtract", "sum_available", "official_sum"}
+=======
 def is_derived_resolver(resolver: Resolver | None) -> bool:
     return resolver_kind(resolver) in {"sum", "subtract", "sum_available"}
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
 
 
 def field(field_name: str) -> Resolver:
@@ -179,6 +193,42 @@ def formula_required(*source_fields: str) -> Resolver:
     return placeholder("formula_required", *source_fields)
 
 
+<<<<<<< HEAD
+def official_value(*labels: str) -> Resolver:
+    canonical_labels = tuple(canonical_label(label) for label in labels)
+
+    def resolver(record: dict) -> object | None:
+        official_rows = record.get("__official_rows__", {})
+        for label_key in canonical_labels:
+            if label_key in official_rows:
+                return official_rows[label_key]
+        return None
+
+    return _resolver_with_metadata(
+        resolver,
+        kind="official",
+        source_labels=tuple(labels),
+    )
+
+
+def official_sum(*labels: str) -> Resolver:
+    canonical_labels = tuple(canonical_label(label) for label in labels)
+
+    def resolver(record: dict) -> object | None:
+        official_rows = record.get("__official_rows__", {})
+        values = [official_rows.get(label_key) for label_key in canonical_labels]
+        numeric = [value for value in values if isinstance(value, (int, float))]
+        return sum(numeric) if numeric else None
+
+    return _resolver_with_metadata(
+        resolver,
+        kind="official_sum",
+        source_labels=tuple(labels),
+    )
+
+
+=======
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
 def normalize_label(value: object | None) -> str:
     text = str(value or "").strip()
     replacements = {
@@ -533,6 +583,14 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("公允价值变动收益"): field("F014N"),
         canonical_label("投资收益"): field("F015N"),
         canonical_label("汇兑收益"): field("F023N"),
+<<<<<<< HEAD
+        canonical_label("其中：利息费用"): official_value("利息费用"),
+        canonical_label("利息收入"): official_value("利息收入"),
+        canonical_label("加：其他收益"): official_value("其他收益"),
+        canonical_label("信用减值损失"): official_value("信用减值损失"),
+        canonical_label("资产处置收益"): official_value("资产处置收益"),
+=======
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
         canonical_label("三、营业利润"): field("F018N"),
         canonical_label("加:营业外收入"): field("F020N"),
         canonical_label("减:营业外支出"): field("F021N"),
@@ -550,7 +608,11 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("八、综合收益总额"): field("F039N"),
         canonical_label("归属于母公司所有者的综合收益总额"): field("F040N"),
         canonical_label("归属于少数股东的综合收益总额"): field("F041N"),
+<<<<<<< HEAD
+        canonical_label("资产减值损失"): official_value("资产减值损失"),
+=======
         canonical_label("资产减值损失"): field("F064N"),
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
     }
 )
 
@@ -583,14 +645,28 @@ COMPANY_CASH_RESOLVERS.update(
 
 BANK_BALANCE_RESOLVERS.update(
     {
+<<<<<<< HEAD
+        canonical_label("现金及存放中央银行款项"): official_value("现金及存放中央银行款项"),
+        canonical_label("发放贷款及垫款"): official_value("发放贷款及垫款"),
+        canonical_label("买入返售金融资产"): official_value("买入返售金融资产"),
+        canonical_label("同业存入及拆入"): official_sum("其中:同业存放款项", "拆入资金"),
+        canonical_label("其中:同业存放款项"): official_value("其中:同业存放款项"),
+        canonical_label("客户存款(吸收存款)"): official_value("客户存款(吸收存款)"),
+        canonical_label("拆入资金"): official_value("拆入资金"),
+        canonical_label("衍生金融工具资产"): field("F035N"),
+=======
         canonical_label("衍生金融工具资产"): field("F035N"),
         canonical_label("买入返售金融资产"): field("F117N"),
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
         canonical_label("固定资产合计"): field("F025N"),
         canonical_label("无形资产"): field("F031N"),
         canonical_label("商誉"): field("F033N"),
         canonical_label("递延税款借项"): field("F087N"),
         canonical_label("投资性房地产"): field("F024N"),
+<<<<<<< HEAD
+=======
         canonical_label("拆入资金"): field("F089N"),
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
         canonical_label("衍生金融工具负债"): field("F090N"),
         canonical_label("交易性金融负债"): first_available(field("F040N"), field("F113N")),
         canonical_label("卖出回购金融资产款"): field("F091N"),
@@ -730,10 +806,13 @@ MANUAL_FIELD_CATALOG: tuple[FieldCatalogItem, ...] = (
     FieldCatalogItem("F056N", "长期应付款合计", "company", "balance"),
     FieldCatalogItem("F075N", "递延收益", "company", "balance"),
     FieldCatalogItem("F114N", "应付短期债券", "company", "balance"),
+<<<<<<< HEAD
+=======
     FieldCatalogItem("F062N", "其他收益", "company", "income"),
     FieldCatalogItem("F063N", "信用减值损失", "company", "income"),
     FieldCatalogItem("F064N", "资产减值损失", "company", "income"),
     FieldCatalogItem("F065N", "资产处置收益", "company", "income"),
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
     FieldCatalogItem("F072N", "客户存款和同业存放款项净增加额", "bank", "cash"),
     FieldCatalogItem("F073N", "向中央银行借款净增加额", "bank", "cash"),
     FieldCatalogItem("F074N", "向其他金融机构拆入资金净增加额", "bank", "cash"),
@@ -798,6 +877,18 @@ def describe_resolver(template_kind: str, statement_type: str, resolver: Resolve
 
     kind = resolver_kind(resolver)
     source_fields = resolver_source_fields(resolver)
+<<<<<<< HEAD
+    source_labels = resolver_source_labels(resolver)
+    if kind == "official":
+        if not source_labels:
+            return "官网年报：同名项目"
+        return "官网年报：%s" % " / ".join(source_labels)
+    if kind == "official_sum":
+        if not source_labels:
+            return "推导：官网年报项目求和"
+        return "推导：%s" % " + ".join(f"官网年报[{label}]" for label in source_labels)
+=======
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
     if not source_fields or kind not in {"sum", "subtract", "sum_available"}:
         return None
 
@@ -839,6 +930,7 @@ def export_template_workbook(
     output_dir: str | Path,
     unit_label: str = DEFAULT_UNIT_LABEL,
     template_id: str | None = None,
+    official_provider: "OfficialAnnualReportSource | None" = None,
 ) -> Path:
     template = resolve_template(template_id)
     normalized_unit_label = normalize_unit_label(unit_label)
@@ -869,6 +961,13 @@ def export_template_workbook(
         if not records:
             continue
 
+        attach_official_overrides(
+            company=company,
+            template=template,
+            statement_type=statement_type,
+            periods=records,
+            official_provider=official_provider,
+        )
         layout = prepare_sheet_layout(sheet, normalized_unit_label, len(records))
         periods = records[: layout.period_count]
         write_period_headers(sheet, layout, periods, normalized_unit_label)
@@ -904,6 +1003,32 @@ def export_template_workbook(
     workbook_path = output_path / f"{company.secname}_{template.template_id}_{latest_year}YE.xlsx"
     workbook.save(workbook_path)
     return workbook_path
+
+
+def attach_official_overrides(
+    *,
+    company: CompanyRecord,
+    template: TemplateSpec,
+    statement_type: str,
+    periods: list[tuple[str, dict]],
+    official_provider: "OfficialAnnualReportSource | None",
+) -> None:
+    if official_provider is None:
+        return
+    if (template.kind, statement_type) not in {("company", "income"), ("bank", "balance")}:
+        return
+
+    for period_end, record in periods:
+        values = official_provider.get_statement_overrides(
+            company,
+            template_kind=template.kind,
+            statement_type=statement_type,
+            period_end=period_end,
+        )
+        if not values:
+            continue
+        official_rows = record.setdefault("__official_rows__", {})
+        official_rows.update({canonical_label(label): value for label, value in values.items()})
 
 
 def select_annual_records(records: list[dict], date_key: str) -> list[tuple[str, dict]]:
@@ -1392,6 +1517,30 @@ def build_missing_row_explanation(
 
     resolver_type = resolver_kind(resolver)
     source_fields = resolver_source_fields(resolver)
+<<<<<<< HEAD
+    source_labels = resolver_source_labels(resolver)
+    if resolver_type == "official":
+        labels = "、".join(source_labels) if source_labels else label
+        return MissingRowExplanation(
+            sheet_name=sheet_name,
+            row_index=row_index,
+            label=label,
+            category="官网年报未取到稳定值",
+            detail=f"这行已切换为官网年报取值：{labels}。当前导出的所有年度里，没有从官网年报表格中稳定提取到可写入的数值。",
+        )
+
+    if resolver_type == "official_sum":
+        labels = "、".join(source_labels) if source_labels else label
+        return MissingRowExplanation(
+            sheet_name=sheet_name,
+            row_index=row_index,
+            label=label,
+            category="官网年报可用项不足，无法安全推导",
+            detail=f"这行依赖官网年报项目推导：{labels}。当前导出的所有年度里，组成项不足，不能安全计算。",
+        )
+
+=======
+>>>>>>> ac5f37ff7bec7b2a7cbe293bc67fc67ecebf952c
     if resolver_type == "no_api_field":
         return MissingRowExplanation(
             sheet_name=sheet_name,

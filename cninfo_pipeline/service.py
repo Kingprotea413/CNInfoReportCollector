@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font
 
 from .client import CninfoClient, CompanyRecord
 from .constants import AVAILABLE_UNIT_LABELS, DEFAULT_UNIT_LABEL, UNIT_SCALE_MAP
+from .official_source import OfficialAnnualReportSource
 from .paths import ensure_writable_dir, resolve_default_cache_dir, resolve_default_output_dir
 
 
@@ -271,6 +272,7 @@ class AnnualReportPipeline:
         cash_flow_records = self.client.fetch_cash_flow_statement(company.seccode)
 
         reporter(80, "正在按模板生成 Excel...")
+        official_provider = OfficialAnnualReportSource(self.client)
         output_path = export_template_workbook(
             company=company,
             balance_records=balance_records,
@@ -279,6 +281,7 @@ class AnnualReportPipeline:
             output_dir=resolved_output_dir,
             unit_label=normalized_unit_label,
             template_id=template.template_id,
+            official_provider=official_provider,
         )
         annual_records = filter_annual_merged_records(balance_records)
 
