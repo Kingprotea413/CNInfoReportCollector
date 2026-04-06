@@ -13,6 +13,15 @@
   - `ENDDATE` 以 `12-31` 结尾
   - `F003V` 为 `合并本期`
 - 按模板格式导出 Excel
+- 内置 `公司`、`银行` 两套导出模板
+  - GUI 可直接选择模板
+  - 命令行可通过 `--template company` 或 `--template bank` 指定
+- 公司和银行模板都会自动展开接口可抓到的全部年报年份
+- 工作表名称按 `公司名 + 报表名` 命名
+- 注释列固定放在最后一列
+  - `PDF年报`：来自官网年报 PDF
+  - `API接口`：来自巨潮接口
+  - `推导`：由现有字段推导得到，注释中会写明口径
 - 支持导出单位切换
   - GUI 可选 `元`、`千元`、`万元`、`亿元`
   - 命令行可通过 `--unit` 指定
@@ -49,6 +58,12 @@
 & "$env:LocalAppData\Programs\Python\Python312\python.exe" .\app.py --headless --company 长江电力 --unit 万元
 ```
 
+指定银行模板示例：
+
+```powershell
+& "$env:LocalAppData\Programs\Python\Python312\python.exe" .\app.py --headless --company 招商银行 --template bank --unit 万元
+```
+
 ## 输出说明
 
 - GUI 模式下，Excel 会保存到窗口中选择的目录
@@ -56,6 +71,8 @@
   - macOS: `~/Library/Application Support/CNInfoReportCollector/exports`
   - Windows: `%LOCALAPPDATA%\CNInfoReportCollector\exports`
 - 命令行模式下，也可以通过 `--output-dir` 指定其他目录
+- 导出时会优先使用官网年报 PDF 对齐主表口径；缺失时再回退到巨潮接口
+- 若模板里没有某个项目，但接口里有非空值，会在主表末尾追加到 `补充项目` 区块
 - 导出文件名格式：
 
 ```text
@@ -66,6 +83,15 @@
 
 ```text
 600900_长江电力_annual_balance_sheet.xlsx
+```
+
+- 主表页签格式：
+
+```text
+长江电力资产负债表
+长江电力利润表
+长江电力现金流量表
+长江电力空白项说明
 ```
 
 ## 测试

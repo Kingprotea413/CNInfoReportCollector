@@ -46,6 +46,7 @@ STATEMENT_SHEET_SUFFIX = {
 }
 SECTION_LABEL_EXACT = {
     "资产",
+    "项目资产",
     "负债",
     "所有者权益",
     "股东权益",
@@ -57,9 +58,25 @@ SECTION_LABEL_EXACT = {
     "投资活动产生的现金流量",
     "筹资活动产生的现金流量",
     "现金及现金等价物净增加额",
+    "每股收益",
+    "以后将重分类进损益",
+    "以后不能重分类进损益",
     "补充资料",
     "补充项目",
 }
+SECTION_LABEL_EXACT.update(
+    {
+        "项目",
+        "项目资产",
+        "金融投资",
+        "金融投资：",
+        "营业支出",
+        "归属于",
+        "归属于：",
+        "其他综合收益",
+        "股东权益",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -294,6 +311,10 @@ NON_SCALED_LABELS = {
     canonical_label("稀释每股收益（人民币元）"),
 }
 
+OFFICIAL_OVERRIDE_GUARDED_LABELS = {
+    canonical_label("所有者权益(或股东权益)合计"),
+}
+
 
 COMPANY_BALANCE_RESOLVERS: dict[str, Resolver] = {
     canonical_label("货币资金"): field("F006N"),
@@ -380,14 +401,14 @@ COMPANY_INCOME_RESOLVERS: dict[str, Resolver] = {
     canonical_label("管理费用"): field("F010N"),
     canonical_label("研发费用"): field("F056N"),
     canonical_label("财务费用"): field("F012N"),
-    canonical_label("加其他收益"): field("F062N"),
+    canonical_label("加其他收益"): field("F051N"),
     canonical_label("投资收益损失以号填列"): field("F015N"),
     canonical_label("其中对联营企业和合营企业的投资收益"): field("F016N"),
     canonical_label("汇兑收益损失以填列"): field("F023N"),
     canonical_label("公允价值变动收益损失以号填列"): field("F014N"),
-    canonical_label("信用减值损失损失以号填列"): field("F063N"),
-    canonical_label("资产减值损失损失以号填列"): field("F064N"),
-    canonical_label("资产处置收益损失以号填列"): field("F065N"),
+    canonical_label("信用减值损失损失以号填列"): field("F064N"),
+    canonical_label("资产减值损失损失以号填列"): field("F065N"),
+    canonical_label("资产处置收益损失以号填列"): field("F059N"),
     canonical_label("三、营业利润亏损以号填列"): field("F018N"),
     canonical_label("加营业外收入"): field("F020N"),
     canonical_label("减营业外支出"): field("F021N"),
@@ -576,14 +597,14 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("汇兑收益"): field("F023N"),
         canonical_label("其中：利息费用"): official_value("利息费用"),
         canonical_label("利息收入"): official_value("利息收入"),
-        canonical_label("加：其他收益"): field("F062N"),
-        canonical_label("信用减值损失"): field("F063N"),
-        canonical_label("资产处置收益"): field("F065N"),
+        canonical_label("加：其他收益"): field("F051N"),
+        canonical_label("信用减值损失"): field("F064N"),
+        canonical_label("资产处置收益"): field("F059N"),
         canonical_label("三、营业利润"): field("F018N"),
         canonical_label("加:营业外收入"): field("F020N"),
         canonical_label("减:营业外支出"): field("F021N"),
         canonical_label("减：营业外支出"): field("F021N"),
-        canonical_label("其中：非流动资产处置损失"): formula_required("F021N", "F065N"),
+        canonical_label("其中：非流动资产处置损失"): formula_required("F021N", "F059N"),
         canonical_label("四、利润总额"): field("F024N"),
         canonical_label("减：所得税费用"): field("F025N"),
         canonical_label("五、净利润"): field("F027N"),
@@ -596,7 +617,7 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("八、综合收益总额"): field("F039N"),
         canonical_label("归属于母公司所有者的综合收益总额"): field("F040N"),
         canonical_label("归属于少数股东的综合收益总额"): field("F041N"),
-        canonical_label("资产减值损失"): field("F064N"),
+        canonical_label("资产减值损失"): field("F065N"),
     }
 )
 
@@ -722,6 +743,139 @@ BANK_CASH_RESOLVERS.update(
     }
 )
 
+BANK_BALANCE_RESOLVERS.update(
+    {
+        canonical_label("现金"): official_value("现金"),
+        canonical_label("贵金属"): official_value("贵金属"),
+        canonical_label("存放中央银行款项"): official_value("存放中央银行款项"),
+        canonical_label("存放同业和其他金融机构款项"): official_value("存放同业和其他金融机构款项"),
+        canonical_label("拆出资金"): official_value("拆出资金"),
+        canonical_label("买入返售金融资产"): field("F117N"),
+        canonical_label("贷款和垫款"): official_value("贷款和垫款"),
+        canonical_label("衍生金融资产"): field("F035N"),
+        canonical_label("以公允价值计量且其变动计入当期损益的金融投资"): official_value(
+            "以公允价值计量且其变动计入当期损益的金融投资"
+        ),
+        canonical_label("以摊余成本计量的债务工具投资"): official_value("以摊余成本计量的债务工具投资"),
+        canonical_label("以公允价值计量且其变动计入其他综合收益的债务工具投资"): official_value(
+            "以公允价值计量且其变动计入其他综合收益的债务工具投资"
+        ),
+        canonical_label("指定为以公允价值计量且其变动计入其他综合收益的权益工具投资"): official_value(
+            "指定为以公允价值计量且其变动计入其他综合收益的权益工具投资"
+        ),
+        canonical_label("长期股权投资"): field("F023N"),
+        canonical_label("投资性房地产"): official_value("投资性房地产"),
+        canonical_label("固定资产"): field("F025N"),
+        canonical_label("在建工程"): official_value("在建工程"),
+        canonical_label("使用权资产"): official_value("使用权资产"),
+        canonical_label("无形资产"): official_value("无形资产"),
+        canonical_label("商誉"): official_value("商誉"),
+        canonical_label("递延所得税资产"): field("F087N"),
+        canonical_label("其他资产"): official_value("其他资产"),
+        canonical_label("资产合计"): field("F038N"),
+        canonical_label("向中央银行借款"): official_value("向中央银行借款"),
+        canonical_label("同业和其他金融机构存放款项"): official_value("同业和其他金融机构存放款项"),
+        canonical_label("卖出回购金融资产款"): field("F091N"),
+        canonical_label("客户存款"): official_value("客户存款"),
+        canonical_label("合同负债"): official_value("合同负债"),
+        canonical_label("租赁负债"): official_value("租赁负债"),
+        canonical_label("预计负债"): official_value("预计负债"),
+        canonical_label("其他负债"): official_value("其他负债"),
+        canonical_label("一般风险准备"): field("F076N"),
+        canonical_label("其中：建议分配利润"): official_value("其中：建议分配利润"),
+        canonical_label("归属于本行股东权益合计"): field("F073N"),
+        canonical_label("其中：普通股少数股东权益"): official_value("其中：普通股少数股东权益"),
+        canonical_label("股东权益合计"): field("F070N"),
+        canonical_label("负债及股东权益总计"): field("F071N"),
+    }
+)
+
+BANK_INCOME_RESOLVERS.update(
+    {
+        canonical_label("利息收入"): official_value("利息收入"),
+        canonical_label("利息支出"): official_value("利息支出"),
+        canonical_label("净利息收入"): field("F033N"),
+        canonical_label("手续费及佣金收入"): official_value("手续费及佣金收入"),
+        canonical_label("手续费及佣金支出"): official_value("手续费及佣金支出"),
+        canonical_label("净手续费及佣金收入"): field("F042N"),
+        canonical_label("投资收益"): field("F015N"),
+        canonical_label("其中：对合营企业及联营企业的投资收益"): field("F016N"),
+        canonical_label("以摊余成本计量的金融资产终止确认产生的收益"): official_value(
+            "以摊余成本计量的金融资产终止确认产生的收益"
+        ),
+        canonical_label("公允价值变动收益"): field("F014N"),
+        canonical_label("汇兑净收益"): field("F017N"),
+        canonical_label("其他净收入"): official_value("其他净收入"),
+        canonical_label("营业收入小计"): field("F035N"),
+        canonical_label("税金及附加"): field("F008N"),
+        canonical_label("业务及管理费"): field("F057N"),
+        canonical_label("信用减值损失"): official_value("信用减值损失"),
+        canonical_label("其他资产减值损失"): official_value("其他资产减值损失"),
+        canonical_label("其他业务成本"): official_value("其他业务成本"),
+        canonical_label("营业支出合计"): field("F036N"),
+        canonical_label("利润总额"): field("F024N"),
+        canonical_label("减：所得税费用"): field("F025N"),
+        canonical_label("本行股东的净利润"): field("F028N"),
+        canonical_label("少数股东的净利润"): field("F029N"),
+        canonical_label("基本及稀释每股收益"): first_available(field("F031N"), field("F032N")),
+        canonical_label("权益法下可转损益的其他综合收益"): official_value("权益法下可转损益的其他综合收益"),
+        canonical_label("以公允价值计量且其变动计入其他综合收益的债务工具投资公允价值变动"): official_value(
+            "以公允价值计量且其变动计入其他综合收益的债务工具投资公允价值变动"
+        ),
+        canonical_label("以公允价值计量且其变动计入其他综合收益的债务工具投资信用损失准备"): official_value(
+            "以公允价值计量且其变动计入其他综合收益的债务工具投资信用损失准备"
+        ),
+        canonical_label("外币财务报表折算差额"): official_value("外币财务报表折算差额"),
+        canonical_label("指定为以公允价值计量且其变动计入其他综合收益的权益工具投资公允价值变动"): official_value(
+            "指定为以公允价值计量且其变动计入其他综合收益的权益工具投资公允价值变动"
+        ),
+        canonical_label("重新计量设定受益计划变动额"): official_value("重新计量设定受益计划变动额"),
+        canonical_label("本年综合收益总额"): field("F039N"),
+        canonical_label("本行股东的综合收益总额"): official_value("本行股东的综合收益总额"),
+        canonical_label("少数股东的综合收益总额"): official_value("少数股东的综合收益总额"),
+    }
+)
+
+BANK_CASH_RESOLVERS.update(
+    {
+        canonical_label("存放中央银行款项净减少额"): official_value("存放中央银行款项净减少额"),
+        canonical_label("交易目的而持有的金融资产净减少额"): official_value("交易目的而持有的金融资产净减少额"),
+        canonical_label("存放同业和其他金融机构款项净减少额"): official_value("存放同业和其他金融机构款项净减少额"),
+        canonical_label("拆入资金及卖出回购金融资产款净增加额"): official_value("拆入资金及卖出回购金融资产款净增加额"),
+        canonical_label("同业和其他金融机构存放款项净增加额"): official_value("同业和其他金融机构存放款项净增加额"),
+        canonical_label("客户存款净增加额"): official_value("客户存款净增加额"),
+        canonical_label("收到其他与经营活动有关的现金"): official_value("收到其他与经营活动有关的现金"),
+        canonical_label("存放同业和其他金融机构款项净增加额"): official_value("存放同业和其他金融机构款项净增加额"),
+        canonical_label("拆出资金及买入返售金融资产净增加额"): official_value("拆出资金及买入返售金融资产净增加额"),
+        canonical_label("贷款和垫款净增加额"): field("F084N"),
+        canonical_label("为交易目的而持有的金融资产净增加额"): official_value("为交易目的而持有的金融资产净增加额"),
+        canonical_label("向中央银行借款净减少额"): official_value("向中央银行借款净减少额"),
+        canonical_label("拆入资金及卖出回购金融资产款净减少额"): official_value("拆入资金及卖出回购金融资产款净减少额"),
+        canonical_label("支付其他与经营活动有关的现金"): official_value("支付其他与经营活动有关的现金"),
+        canonical_label("处置子公司、合营企业或联营企业收到的现金"): field("F019N"),
+        canonical_label("出售固定资产和其他资产收到的现金"): field("F018N"),
+        canonical_label("取得子公司、合营企业或联营企业支付的现金"): official_value("取得子公司、合营企业或联营企业支付的现金"),
+        canonical_label("购建固定资产和其他资产所支付的现金"): field("F022N"),
+        canonical_label("发行存款证及其他收到的现金"): official_value("发行存款证及其他收到的现金"),
+        canonical_label("发行同业存单收到的现金"): official_value("发行同业存单收到的现金"),
+        canonical_label("发行永续债募集的资金"): official_value("发行永续债募集的资金"),
+        canonical_label("偿还存款证及其他支付的现金"): official_value("偿还存款证及其他支付的现金"),
+        canonical_label("偿还同业存单支付的现金"): official_value("偿还同业存单支付的现金"),
+        canonical_label("赎回永续债支付的现金"): official_value("赎回永续债支付的现金"),
+        canonical_label("支付租赁负债的现金"): official_value("支付租赁负债的现金"),
+        canonical_label("赎回永续债务资本利息支付的现金"): official_value("赎回永续债务资本利息支付的现金"),
+        canonical_label("派发普通股股利支付的现金"): official_value("派发普通股股利支付的现金"),
+        canonical_label("派发优先股股息支付的现金"): official_value("派发优先股股息支付的现金"),
+        canonical_label("派发永续债利息支付的现金"): official_value("派发永续债利息支付的现金"),
+        canonical_label("支付筹资活动的利息"): official_value("支付筹资活动的利息"),
+        canonical_label("四、汇率变动对现金及现金等价物的影响额"): field("F037N"),
+        canonical_label("因：汇率变动及现金及现金等价物的影响额"): field("F037N"),
+        canonical_label("五、现金及现金等价物净（减少）/增加额"): field("F071N"),
+        canonical_label("加：年初现金及现金等价物余额"): field("F040N"),
+        canonical_label("六、年末现金及现金等价物余额"): field("F041N"),
+    }
+)
+
 ROW_OCCURRENCE_RESOLVERS: dict[tuple[str, str], dict[tuple[str, int], Resolver]] = {
     ("company", "balance"): {
         (canonical_label("其他应收款"), 1): field("F011N"),
@@ -844,12 +998,22 @@ def describe_resolver(template_kind: str, statement_type: str, resolver: Resolve
         return None
 
     kind = resolver_kind(resolver)
-    if kind == "official":
-        return "PDF年报"
-    if kind in {"sum", "subtract", "sum_available", "official_sum"}:
-        return "推导"
-    if kind in {"field", "first_available"}:
-        return "API接口"
+    source_fields = resolver_source_fields(resolver)
+    source_labels = resolver_source_labels(resolver)
+    if kind == "official_sum":
+        labels = [label for label in source_labels if label]
+        return f"推导：{' + '.join(labels)}" if labels else "推导"
+    if kind not in {"sum", "subtract", "sum_available"} or not source_fields:
+        return None
+
+    labels = source_field_labels(template_kind, statement_type, source_fields)
+    if kind == "sum":
+        return f"推导：{' + '.join(labels)}"
+    if kind == "subtract":
+        head, *tail = labels
+        return f"推导：{head} - {' - '.join(tail)}"
+    if kind == "sum_available":
+        return f"推导：按有值项求和（{' + '.join(labels)}）"
     return None
 
 
@@ -982,9 +1146,15 @@ def attach_official_overrides(
         if not values:
             continue
         official_rows = record.setdefault("__official_rows__", {})
-        for label, value in values.items():
+        for label_entry, value in values.items():
+            if isinstance(label_entry, tuple) and len(label_entry) == 2:
+                label, occurrence = label_entry
+            else:
+                label = label_entry
+                occurrence = 1
             for label_key in official_label_keys(label, template_kind=template.kind, statement_type=statement_type):
-                official_rows[label_key] = value
+                official_rows[(label_key, occurrence)] = value
+                official_rows.setdefault(label_key, value)
 
 
 def collect_requested_official_labels(sheet, layout: SheetLayout) -> list[str]:
@@ -997,40 +1167,88 @@ def collect_requested_official_labels(sheet, layout: SheetLayout) -> list[str]:
     return labels
 
 
-def official_value_for_label(record: dict, label_key: str) -> object | None:
-    return record.get("__official_rows__", {}).get(label_key)
+def official_value_for_label(record: dict, label_key: str, occurrence: int = 1) -> object | None:
+    official_rows = record.get("__official_rows__", {})
+    if (label_key, occurrence) in official_rows:
+        return official_rows[(label_key, occurrence)]
+    if occurrence > 1:
+        return None
+    return official_rows.get(label_key)
 
 
-def classify_row_source(label_key: str, resolver: Resolver | None, periods: list[tuple[str, dict]]) -> str | None:
+def select_official_value(
+    record: dict,
+    label_key: str,
+    occurrence: int,
+    resolver: Resolver | None,
+) -> object | None:
+    official = official_value_for_label(record, label_key, occurrence)
+    if official is None:
+        return None
+    if label_key not in OFFICIAL_OVERRIDE_GUARDED_LABELS or resolver is None or is_placeholder_resolver(resolver):
+        return official
+
+    api_value = resolver(record)
+    if not isinstance(official, (int, float)) or not isinstance(api_value, (int, float)):
+        return official
+    if abs(official - api_value) > max(abs(api_value) * 0.1, 1.0):
+        return None
+    return official
+
+
+def classify_row_source(
+    template_kind: str,
+    statement_type: str,
+    label_key: str,
+    occurrence: int,
+    resolver: Resolver | None,
+    periods: list[tuple[str, dict]],
+) -> str | None:
     if resolver is None or is_placeholder_resolver(resolver):
         return None
 
-    saw_official = False
-    saw_derived = False
-    saw_api = False
     derived = is_derived_resolver(resolver)
 
     for _period, record in periods:
-        official = official_value_for_label(record, label_key)
+        official = select_official_value(record, label_key, occurrence, resolver)
         if official is not None:
-            saw_official = True
-            continue
+            if has_pdf_api_conflict(label_key, occurrence, resolver, [(None, record)]):
+                return "PDF年报（与API不一致）"
+            return "PDF年报"
 
         value = resolver(record)
         if value is None:
             continue
         if derived:
-            saw_derived = True
-        else:
-            saw_api = True
-
-    if saw_official:
-        return "PDF年报"
-    if saw_derived:
-        return "推导"
-    if saw_api:
+            return describe_resolver(template_kind, statement_type, resolver) or "推导"
         return "API接口"
     return None
+
+
+def has_pdf_api_conflict(
+    label_key: str,
+    occurrence: int,
+    resolver: Resolver | None,
+    periods: list[tuple[str | None, dict]],
+) -> bool:
+    if resolver is None or is_placeholder_resolver(resolver):
+        return False
+
+    for _period, record in periods:
+        official = select_official_value(record, label_key, occurrence, resolver)
+        api_value = resolver(record)
+        if official is None or api_value is None:
+            continue
+        if values_conflict(official, api_value):
+            return True
+    return False
+
+
+def values_conflict(left: object, right: object) -> bool:
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        tolerance = max(1e-6, max(abs(left), abs(right)) * 1e-6)
+        return abs(left - right) > tolerance
+    return left != right
 
 
 def select_annual_records(records: list[dict], date_key: str) -> list[tuple[str, dict]]:
@@ -1067,11 +1285,11 @@ def build_export_sheet_title(company_name: str, suffix: str) -> str:
 def prepare_sheet_layout(sheet, unit_label: str, record_count: int) -> SheetLayout:
     dual_header = uses_dual_header_rows(sheet)
     if dual_header:
-        note_col = ensure_note_column(sheet, dual_header=True)
         style_header_label_cell(sheet.cell(1, 1), "报表日期")
         style_header_label_cell(sheet.cell(2, 1), "单位")
-        data_start_col, existing_count = detect_period_columns(sheet, 1, min_col=note_col + 1)
+        data_start_col, existing_count = detect_period_columns(sheet, 1, min_col=2)
         period_count = max(existing_count, record_count, DEFAULT_ANNUAL_PERIODS)
+        note_col = ensure_note_column(sheet, target_col=data_start_col + period_count, dual_header=True)
         return SheetLayout(
             header_row=1,
             unit_row=2,
@@ -1082,9 +1300,9 @@ def prepare_sheet_layout(sheet, unit_label: str, record_count: int) -> SheetLayo
         )
 
     header_row = ensure_single_header_row(sheet, unit_label)
-    note_col = ensure_note_column(sheet, dual_header=False)
-    data_start_col, existing_count = detect_period_columns(sheet, header_row, min_col=note_col + 1)
+    data_start_col, existing_count = detect_period_columns(sheet, header_row, min_col=2)
     period_count = max(existing_count, record_count, DEFAULT_ANNUAL_PERIODS)
+    note_col = ensure_note_column(sheet, target_col=data_start_col + period_count, dual_header=False)
     return SheetLayout(
         header_row=header_row,
         unit_row=None,
@@ -1108,10 +1326,24 @@ def style_header_label_cell(cell, value: str) -> None:
     cell.font = HEADER_FONT
 
 
-def ensure_note_column(sheet, *, dual_header: bool) -> int:
-    note_col = 2
-    if canonical_label(sheet.cell(1, note_col).value) != canonical_label(NOTE_HEADER):
+def find_note_column(sheet) -> int | None:
+    for column in range(2, sheet.max_column + 1):
+        if canonical_label(sheet.cell(1, column).value) == canonical_label(NOTE_HEADER):
+            return column
+    return None
+
+
+def ensure_note_column(sheet, *, target_col: int, dual_header: bool) -> int:
+    note_col = max(target_col, 2)
+    existing_col = find_note_column(sheet)
+    if existing_col is None:
         sheet.insert_cols(note_col)
+    elif existing_col < note_col:
+        sheet.insert_cols(note_col + 1)
+        sheet.delete_cols(existing_col)
+    elif existing_col > note_col:
+        sheet.insert_cols(note_col)
+        sheet.delete_cols(existing_col + 1)
 
     style_header_label_cell(sheet.cell(1, note_col), NOTE_HEADER)
     if dual_header:
@@ -1141,7 +1373,7 @@ def detect_period_columns(sheet, header_row: int, min_col: int = 2) -> tuple[int
 
     if first_period_col is not None:
         column = first_period_col
-        while column <= sheet.max_column and sheet.cell(header_row, column).value not in (None, ""):
+        while column <= sheet.max_column and looks_like_period_header(sheet.cell(header_row, column).value):
             existing_count += 1
             column += 1
         return first_period_col, existing_count
@@ -1230,13 +1462,7 @@ def clear_period_cells(sheet, layout: SheetLayout) -> None:
 
 
 def normalize_template_labels(sheet, template: TemplateSpec, statement_type: str) -> None:
-    if template.kind != "company" or statement_type != "income":
-        return
-
-    for row in range(1, sheet.max_row + 1):
-        cell = sheet.cell(row, 1)
-        if canonical_label(cell.value) == canonical_label("一、营业总收入"):
-            cell.value = "一、营业收入"
+    return
 
 
 def prune_statement_rows(sheet, template: TemplateSpec, statement_type: str) -> None:
@@ -1341,11 +1567,11 @@ def append_supplemental_section(
         row_index = title_row + offset
         label_cell = sheet.cell(row_index, 1, label)
         label_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        note_text = describe_resolver(template.kind, statement_type, resolver)
+        note_text = classify_row_source(template.kind, statement_type, label_key, 1, resolver, periods)
         note_cell = sheet.cell(row_index, layout.note_col)
         note_cell.value = note_text
         note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if note_text == "推导":
+        if isinstance(note_text, str) and note_text.startswith("推导"):
             note_cell.fill = DERIVED_FILL
         for period_index, value in enumerate(values):
             cell = sheet.cell(row_index, layout.data_start_col + period_index)
@@ -1383,10 +1609,17 @@ def fill_statement_sheet(
         resolver = resolve_row_resolver(template.kind, statement_type, label_key, occurrences[label_key])
         apply_section_style(sheet, row, statement_type, raw_label, resolver)
         note_cell = sheet.cell(row, layout.note_col)
-        note_text = classify_row_source(label_key, resolver, periods)
+        note_text = classify_row_source(
+            template.kind,
+            statement_type,
+            label_key,
+            occurrences[label_key],
+            resolver,
+            periods,
+        )
         note_cell.value = note_text
         note_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-        if note_text == "推导":
+        if isinstance(note_text, str) and note_text.startswith("推导"):
             note_cell.fill = DERIVED_FILL
         if resolver is not None and not is_placeholder_resolver(resolver):
             covered_fields.update(resolver_source_fields(resolver))
@@ -1406,7 +1639,7 @@ def fill_statement_sheet(
 
         resolved_any_value = False
         for offset, (_period, record) in enumerate(periods):
-            official_value = official_value_for_label(record, label_key)
+            official_value = select_official_value(record, label_key, occurrences[label_key], resolver)
             used_official = official_value is not None
             value = official_value if used_official else resolver(record)
             cell = sheet.cell(row, layout.data_start_col + offset)
