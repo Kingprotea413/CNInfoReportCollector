@@ -251,9 +251,9 @@ class ServiceTests(unittest.TestCase):
         cash_flow_records = [build_statement_record("2024-12-31"), build_statement_record("2023-12-31")]
         client = MagicMock()
         client.search_company.return_value = company
-        client.fetch_balance_sheet.return_value = balance_records
-        client.fetch_income_statement.return_value = income_records
-        client.fetch_cash_flow_statement.return_value = cash_flow_records
+        client.fetch_bank_balance_sheet.return_value = balance_records
+        client.fetch_bank_income_statement.return_value = income_records
+        client.fetch_bank_cash_flow_statement.return_value = cash_flow_records
 
         pipeline = AnnualReportPipeline(client=client)
         fake_output = Path("out") / "工业富联财务报表2024YE.xlsx"
@@ -272,9 +272,12 @@ class ServiceTests(unittest.TestCase):
 
         client.set_cache_dir.assert_called_once_with(fake_cache_dir)
         client.search_company.assert_called_once_with("工业富联")
-        client.fetch_balance_sheet.assert_called_once_with("601138")
-        client.fetch_income_statement.assert_called_once_with("601138")
-        client.fetch_cash_flow_statement.assert_called_once_with("601138")
+        client.fetch_bank_balance_sheet.assert_called_once_with("601138")
+        client.fetch_bank_income_statement.assert_called_once_with("601138")
+        client.fetch_bank_cash_flow_statement.assert_called_once_with("601138")
+        client.fetch_balance_sheet.assert_not_called()
+        client.fetch_income_statement.assert_not_called()
+        client.fetch_cash_flow_statement.assert_not_called()
         exporter.assert_called_once_with(
             company=company,
             balance_records=balance_records,
@@ -543,89 +546,101 @@ class ServiceTests(unittest.TestCase):
         balance_records = [
             build_balance_record(
                 "2025-12-31",
-                F023N=3_000_000,
-                F061N=16_000_000,
-                F062N=500_000,
-                F063N=600_000,
-                F064N=700_000,
-                F065N=800_000,
-                F067N=90_000,
-                F070N=5_000_000,
-                F071N=21_000_000,
-                F073N=4_910_000,
-                F074N=110_000,
-                F076N=900_000,
-                F089N=1_200_000,
-                F090N=1_300_000,
-                F103N=1_400_000,
-                F104N=500_000,
-                F105N=900_000,
+                F034N=3_000_000,
+                F048N=2_100_000,
+                F049N=3_600_000,
+                F052N=1_200_000,
+                F054N=1_300_000,
+                F082N=16_000_000,
+                F083N=500_000,
+                F084N=600_000,
+                F086N=700_000,
+                F087N=900_000,
+                F088N=800_000,
+                F089N=90_000,
+                F092N=5_000_000,
+                F093N=21_000_000,
+                F094N=4_910_000,
+                F097N=1_400_000,
+                F098N=500_000,
+                F099N=900_000,
+                F100N=110_000,
             ),
             build_balance_record(
                 "2024-12-31",
-                F023N=2_500_000,
-                F061N=14_000_000,
-                F062N=450_000,
-                F063N=550_000,
-                F064N=650_000,
-                F065N=750_000,
-                F067N=80_000,
-                F070N=4_500_000,
-                F071N=18_500_000,
-                F073N=4_420_000,
-                F074N=90_000,
-                F076N=850_000,
-                F089N=1_000_000,
-                F090N=1_100_000,
-                F103N=1_200_000,
-                F104N=400_000,
-                F105N=800_000,
+                F034N=2_500_000,
+                F048N=1_900_000,
+                F049N=3_300_000,
+                F052N=1_000_000,
+                F054N=1_100_000,
+                F082N=14_000_000,
+                F083N=450_000,
+                F084N=550_000,
+                F086N=650_000,
+                F087N=850_000,
+                F088N=750_000,
+                F089N=80_000,
+                F092N=4_500_000,
+                F093N=18_500_000,
+                F094N=4_420_000,
+                F097N=1_200_000,
+                F098N=400_000,
+                F099N=800_000,
+                F100N=90_000,
             ),
         ]
         income_records = [
-            build_statement_record("2025-12-31", F033N=500_000, F035N=900_000, F027N=300_000),
-            build_statement_record("2024-12-31", F033N=400_000, F035N=800_000, F027N=250_000),
+            build_statement_record(
+                "2025-12-31",
+                F006N=900_000,
+                F007N=500_000,
+                F008N=800_000,
+                F009N=300_000,
+                F048N=300_000,
+            ),
+            build_statement_record(
+                "2024-12-31",
+                F006N=800_000,
+                F007N=400_000,
+                F008N=700_000,
+                F009N=300_000,
+                F048N=250_000,
+            ),
         ]
         cash_flow_records = [
             build_statement_record(
                 "2025-12-31",
-                F009N=700_000,
-                F014N=600_000,
-                F015N=100_000,
-                F011N=40_000,
-                F012N=20_000,
-                F020N=30_000,
-                F022N=50_000,
-                F031N=90_000,
-                F032N=80_000,
+                F010N=120_000,
+                F019N=30_000,
+                F021N=130_000,
+                F027N=40_000,
+                F028N=20_000,
+                F031N=100_000,
+                F033N=60_000,
                 F034N=70_000,
-                F037N=60_000,
-                F040N=500_000,
-                F041N=400_000,
-                F076N=110_000,
-                F081N=120_000,
-                F084N=130_000,
-                F087N=140_000,
+                F039N=50_000,
+                F045N=110_000,
+                F047N=70_000,
+                F054N=60_000,
+                F057N=500_000,
+                F058N=400_000,
             ),
             build_statement_record(
                 "2024-12-31",
-                F009N=650_000,
-                F014N=580_000,
-                F015N=70_000,
-                F011N=35_000,
-                F012N=15_000,
-                F020N=25_000,
-                F022N=45_000,
-                F031N=85_000,
-                F032N=75_000,
+                F010N=110_000,
+                F019N=25_000,
+                F021N=120_000,
+                F027N=35_000,
+                F028N=15_000,
+                F031N=70_000,
+                F033N=55_000,
                 F034N=65_000,
-                F037N=55_000,
-                F040N=450_000,
-                F041N=350_000,
-                F076N=100_000,
-                F081N=110_000,
-                F084N=120_000,
-                F087N=130_000,
+                F039N=45_000,
+                F045N=100_000,
+                F047N=65_000,
+                F054N=55_000,
+                F057N=450_000,
+                F058N=350_000,
             ),
         ]
 
@@ -637,12 +652,14 @@ class ServiceTests(unittest.TestCase):
             balance_sheet.title = "测试银行资产负债表"
             for row, label in enumerate(
                 [
-                    "资产：",
+                    "项目资产",
                     "长期股权投资",
+                    "向中央银行借款",
+                    "同业和其他金融机构存放款项",
                     "拆入资金",
                     "衍生金融负债",
-                    "其他权益工具：",
-                    "优先股",
+                    "其他权益工具",
+                    "其中：优先股",
                     "永续债",
                     "资本公积",
                     "其他综合收益",
@@ -657,24 +674,26 @@ class ServiceTests(unittest.TestCase):
                 balance_sheet.cell(row, 1, label)
 
             income_sheet = template_workbook.create_sheet("测试银行利润表")
-            for row, label in enumerate(["利息净收入", "营业收入"], start=1):
+            for row, label in enumerate(["利息净收入", "营业收入小计", "净利润"], start=1):
                 income_sheet.cell(row, 1, label)
 
             cash_sheet = template_workbook.create_sheet("测试银行现金流量表")
             for row, label in enumerate(
                 [
-                    "一、经营活动产生的现金流量：",
+                    "一、经营活动产生的现金流量",
                     "收取的利息、手续费及佣金的现金",
-                    "客户贷款及垫款净额",
-                    "支付给职工以及为职工支付的现金支付的各项税费",
-                    "收到其他与投资活动有关的现金",
-                    "购建固定资产、无形资产和其他长期资产支付的现金",
-                    "发行债务证券所收到的现金",
-                    "偿还债务证券所支付的现金",
-                    "支付其他与筹资活动有关的现金",
-                    "四、汇率变动对现金及现金等价物",
+                    "贷款和垫款净增加额",
+                    "支付给职工以及为职工支付的现金",
+                    "支付的各项税费",
+                    "收到其他与经营活动有关的现金",
+                    "收回投资收到的现金",
+                    "取得投资收益收到的现金",
+                    "购建固定资产和其他资产所支付的现金",
+                    "发行债券收到的现金",
+                    "收到其他与筹资活动有关的现金",
+                    "四、汇率变动对现金及现金等价物的影响额",
                     "经营活动产生的现金流量净额",
-                    "年初现金及现金等价物余额",
+                    "加：年初现金及现金等价物余额",
                     "年末现金及现金等价物余额",
                 ],
                 start=1,
@@ -691,14 +710,7 @@ class ServiceTests(unittest.TestCase):
                 path=template_path,
             )
             official_provider = MagicMock()
-            official_provider.get_statement_overrides.side_effect = lambda *_args, **kwargs: {
-                "拆入资金": 1_200_000 if kwargs["period_end"] == "2025-12-31" else 1_000_000,
-                "其中:同业存放款项": 800_000 if kwargs["period_end"] == "2025-12-31" else 700_000,
-                "发放贷款及垫款": 2_600_000 if kwargs["period_end"] == "2025-12-31" else 2_400_000,
-                "现金及存放中央银行款项": 900_000 if kwargs["period_end"] == "2025-12-31" else 850_000,
-                "买入返售金融资产": 300_000 if kwargs["period_end"] == "2025-12-31" else 250_000,
-                "客户存款(吸收存款)": 5_200_000 if kwargs["period_end"] == "2025-12-31" else 5_000_000,
-            }
+            official_provider.get_statement_overrides.return_value = {}
 
             with patch("cninfo_pipeline.template_export.resolve_template", return_value=template):
                 workbook_path = export_template_workbook(
@@ -723,7 +735,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(balance_sheet.cell(1, balance_note_col).value, "注释")
             self.assertEqual(iso_date(balance_sheet["B1"].value), "2025-12-31")
             self.assertEqual(iso_date(balance_sheet["C1"].value), "2024-12-31")
-            self.assertEqual(balance_sheet["A2"].value, "资产：")
+            self.assertEqual(balance_sheet["A2"].value, "项目资产")
             self.assertGreater(balance_sheet.column_dimensions["A"].width, 10)
             self.assertTrue(balance_sheet["A2"].alignment.wrap_text)
             self.assertTrue(balance_sheet["A2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["balance"].fgColor.rgb[-6:]))
@@ -735,17 +747,17 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(balance_sheet.cell(1, balance_note_col).border.left.style, "medium")
             long_term_row = find_row_index(balance_sheet, "长期股权投资")
             self.assertEqual(balance_sheet.cell(long_term_row, 2).value, 300)
+            cb_borrow_row = find_row_index(balance_sheet, "向中央银行借款")
+            self.assertEqual(balance_sheet.cell(cb_borrow_row, 2).value, 210)
+            peer_deposit_row = find_row_index(balance_sheet, "同业和其他金融机构存放款项")
+            self.assertEqual(balance_sheet.cell(peer_deposit_row, 2).value, 360)
             split_borrow_row = find_row_index(balance_sheet, "拆入资金")
             self.assertEqual(balance_sheet.cell(split_borrow_row, 2).value, 120)
             derivative_liab_row = find_row_index(balance_sheet, "衍生金融负债")
             self.assertEqual(balance_sheet.cell(derivative_liab_row, 2).value, 130)
-            equity_tool_row = find_row_index(balance_sheet, "其他权益工具：")
+            equity_tool_row = find_row_index(balance_sheet, "其他权益工具")
             self.assertEqual(balance_sheet.cell(equity_tool_row, 2).value, 140)
-            self.assertNotEqual(
-                balance_sheet.cell(equity_tool_row, 1).fill.fgColor.rgb,
-                SECTION_FILL_BY_STATEMENT["balance"].fgColor.rgb,
-            )
-            preferred_row = find_row_index(balance_sheet, "优先股")
+            preferred_row = find_row_index(balance_sheet, "其中：优先股")
             self.assertEqual(balance_sheet.cell(preferred_row, 2).value, 50)
             perpetual_row = find_row_index(balance_sheet, "永续债")
             self.assertEqual(balance_sheet.cell(perpetual_row, 2).value, 90)
@@ -760,8 +772,12 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(iso_date(income_sheet["B1"].value), "2025-12-31")
             interest_row = find_row_index(income_sheet, "利息净收入")
             self.assertEqual(income_sheet.cell(interest_row, 2).value, 50)
+            revenue_row = find_row_index(income_sheet, "营业收入小计")
+            self.assertEqual(income_sheet.cell(revenue_row, 2).value, 90)
+            profit_row = find_row_index(income_sheet, "净利润")
+            self.assertEqual(income_sheet.cell(profit_row, 2).value, 30)
 
-            self.assertEqual(cash_sheet["A2"].value, "一、经营活动产生的现金流量：")
+            self.assertEqual(cash_sheet["A2"].value, "一、经营活动产生的现金流量")
             cash_note_col = find_column_index(cash_sheet, "注释")
             self.assertEqual(cash_sheet.cell(1, cash_note_col).value, "注释")
             self.assertEqual(iso_date(cash_sheet["B1"].value), "2025-12-31")
@@ -769,36 +785,36 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(cash_sheet["B2"].fill.fgColor.rgb.endswith(SECTION_FILL_BY_STATEMENT["cash"].fgColor.rgb[-6:]))
             collected_fee_row = find_row_index(cash_sheet, "收取的利息、手续费及佣金的现金")
             self.assertEqual(cash_sheet.cell(collected_fee_row, 2).value, 12)
-            loans_row = find_row_index(cash_sheet, "客户贷款及垫款净额")
+            loans_row = find_row_index(cash_sheet, "贷款和垫款净增加额")
             self.assertEqual(cash_sheet.cell(loans_row, 2).value, 13)
-            merged_payroll_tax_row = find_row_index(cash_sheet, "支付给职工以及为职工支付的现金支付的各项税费")
-            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, 2).value, 6)
-            self.assertTrue(
-                cash_sheet.cell(merged_payroll_tax_row, 2).fill.fgColor.rgb.endswith(DERIVED_FILL.fgColor.rgb[-6:])
-            )
-            self.assertEqual(cash_sheet.cell(merged_payroll_tax_row, cash_note_col).value, "推导：支付给职工以及为职工支付的现金 + 支付的各项税费")
-            other_invest_row = find_row_index(cash_sheet, "收到其他与投资活动有关的现金")
-            self.assertEqual(cash_sheet.cell(other_invest_row, 2).value, 3)
-            capex_row = find_row_index(cash_sheet, "购建固定资产、无形资产和其他长期资产支付的现金")
+            payroll_row = find_row_index(cash_sheet, "支付给职工以及为职工支付的现金")
+            self.assertEqual(cash_sheet.cell(payroll_row, 2).value, 4)
+            tax_row = find_row_index(cash_sheet, "支付的各项税费")
+            self.assertEqual(cash_sheet.cell(tax_row, 2).value, 2)
+            other_operating_row = find_row_index(cash_sheet, "收到其他与经营活动有关的现金")
+            self.assertEqual(cash_sheet.cell(other_operating_row, 2).value, 3)
+            other_invest_row = find_row_index(cash_sheet, "收回投资收到的现金")
+            self.assertEqual(cash_sheet.cell(other_invest_row, 2).value, 6)
+            invest_gain_row = find_row_index(cash_sheet, "取得投资收益收到的现金")
+            self.assertEqual(cash_sheet.cell(invest_gain_row, 2).value, 7)
+            capex_row = find_row_index(cash_sheet, "购建固定资产和其他资产所支付的现金")
             self.assertEqual(cash_sheet.cell(capex_row, 2).value, 5)
-            debt_issue_row = find_row_index(cash_sheet, "发行债务证券所收到的现金")
+            debt_issue_row = find_row_index(cash_sheet, "发行债券收到的现金")
             self.assertEqual(cash_sheet.cell(debt_issue_row, 2).value, 11)
-            debt_repay_row = find_row_index(cash_sheet, "偿还债务证券所支付的现金")
-            self.assertEqual(cash_sheet.cell(debt_repay_row, 2).value, 8)
-            other_finance_row = find_row_index(cash_sheet, "支付其他与筹资活动有关的现金")
+            other_finance_row = find_row_index(cash_sheet, "收到其他与筹资活动有关的现金")
             self.assertEqual(cash_sheet.cell(other_finance_row, 2).value, 7)
-            fx_row = find_row_index(cash_sheet, "四、汇率变动对现金及现金等价物")
+            fx_row = find_row_index(cash_sheet, "四、汇率变动对现金及现金等价物的影响额")
             self.assertEqual(cash_sheet.cell(fx_row, 2).value, 6)
             net_cash_row = find_row_index(cash_sheet, "经营活动产生的现金流量净额")
             self.assertEqual(cash_sheet.cell(net_cash_row, 2).value, 10)
-            opening_cash_row = find_row_index(cash_sheet, "年初现金及现金等价物余额")
+            opening_cash_row = find_row_index(cash_sheet, "加：年初现金及现金等价物余额")
             self.assertEqual(cash_sheet.cell(opening_cash_row, 2).value, 50)
             closing_cash_row = find_row_index(cash_sheet, "年末现金及现金等价物余额")
             self.assertEqual(cash_sheet.cell(closing_cash_row, 2).value, 40)
             self.assertEqual(reason_sheet["A1"].value, "工作表")
             reason_labels = {reason_sheet.cell(row, 3).value for row in range(2, reason_sheet.max_row + 1)}
-            self.assertIn("资产：", reason_labels)
-            self.assertIn("一、经营活动产生的现金流量：", reason_labels)
+            self.assertIn("项目资产", reason_labels)
+            self.assertIn("一、经营活动产生的现金流量", reason_labels)
 
             workbook.close()
 
@@ -1192,8 +1208,8 @@ class ServiceTests(unittest.TestCase):
     def test_export_template_workbook_explains_missing_rows(self) -> None:
         company = CompanyRecord(seccode="601398", secname="工商银行", orgname="中国工商银行股份有限公司")
         balance_records = [
-            build_balance_record("2025-12-31", F063N=None),
-            build_balance_record("2024-12-31", F063N=None),
+            build_balance_record("2025-12-31", F084N=None),
+            build_balance_record("2024-12-31", F084N=None),
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:

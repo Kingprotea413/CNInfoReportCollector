@@ -263,13 +263,22 @@ class AnnualReportPipeline:
 
         reporter(20, f"正在加载模板：{template.display_name}...")
         reporter(30, f"正在抓取 {company.secname} 的资产负债表...")
-        balance_records = self.client.fetch_balance_sheet(company.seccode)
+        if template.kind == "bank":
+            balance_records = self.client.fetch_bank_balance_sheet(company.seccode)
+        else:
+            balance_records = self.client.fetch_balance_sheet(company.seccode)
 
         reporter(45, f"正在抓取 {company.secname} 的利润表...")
-        income_records = self.client.fetch_income_statement(company.seccode)
+        if template.kind == "bank":
+            income_records = self.client.fetch_bank_income_statement(company.seccode)
+        else:
+            income_records = self.client.fetch_income_statement(company.seccode)
 
         reporter(60, f"正在抓取 {company.secname} 的现金流量表...")
-        cash_flow_records = self.client.fetch_cash_flow_statement(company.seccode)
+        if template.kind == "bank":
+            cash_flow_records = self.client.fetch_bank_cash_flow_statement(company.seccode)
+        else:
+            cash_flow_records = self.client.fetch_cash_flow_statement(company.seccode)
 
         reporter(80, "正在按模板生成 Excel...")
         official_provider = OfficialAnnualReportSource(self.client)
