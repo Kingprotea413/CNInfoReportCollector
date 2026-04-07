@@ -601,12 +601,13 @@ BANK_CASH_RESOLVERS: dict[str, Resolver] = {
 COMPANY_BALANCE_RESOLVERS.update(
     {
         canonical_label("应收票据及应收账款"): sum_fields("F008N", "F009N"),
-        canonical_label("划分为持有待售的资产"): field("F118N"),
-        canonical_label("债权投资"): official_value("债权投资"),
-        canonical_label("其他债权投资"): aggregate_only("F022N"),
-        canonical_label("可供出售金融资产"): aggregate_only("F111N"),
-        canonical_label("持有至到期投资"): aggregate_only("F112N"),
-        canonical_label("发放贷款及垫款"): field("F113N"),
+        canonical_label("划分为持有待售的资产"): field("F085N"),
+        canonical_label("应收款项融资"): field("F120N"),
+        canonical_label("债权投资"): field_or_official("F116N", "债权投资"),
+        canonical_label("其他债权投资"): field("F110N"),
+        canonical_label("可供出售金融资产"): field("F020N"),
+        canonical_label("持有至到期投资"): field("F021N"),
+        canonical_label("发放贷款及垫款"): sum_available_fields("F079N", "F086N"),
         canonical_label("固定资产及清理"): sum_available_fields("F025N", "F028N"),
         canonical_label("工程物资"): field("F027N"),
         canonical_label("固定资产净额"): field("F025N"),
@@ -614,10 +615,10 @@ COMPANY_BALANCE_RESOLVERS.update(
         canonical_label("应付票据及应付账款"): sum_fields("F041N", "F042N"),
         canonical_label("吸收存款同业存放"): placeholder("no_api_field"),
         canonical_label("应付手续费及佣金"): aggregate_only("F115N"),
-        canonical_label("一年内的递延收益"): field("F116N"),
-        canonical_label("应付短期债券"): field("F114N"),
+        canonical_label("一年内的递延收益"): field("F099N"),
+        canonical_label("应付短期债券"): placeholder("no_api_field"),
         canonical_label("预计非流动负债"): field("F057N"),
-        canonical_label("专项应付款"): field("F077N"),
+        canonical_label("专项应付款"): field("F056N"),
         canonical_label("长期递延收益"): field("F075N"),
         canonical_label("归属于母公司股东权益合计"): field("F073N"),
     }
@@ -630,8 +631,8 @@ COMPANY_INCOME_RESOLVERS.update(
         canonical_label("公允价值变动收益"): field("F014N"),
         canonical_label("投资收益"): field("F015N"),
         canonical_label("汇兑收益"): field("F023N"),
-        canonical_label("其中：利息费用"): official_value("利息费用"),
-        canonical_label("利息收入"): official_value("利息收入"),
+        canonical_label("其中：利息费用"): field_or_official("F062N", "利息费用"),
+        canonical_label("利息收入"): field_or_official("F063N", "利息收入"),
         canonical_label("加：其他收益"): field("F051N"),
         canonical_label("信用减值损失"): field("F064N"),
         canonical_label("资产处置收益"): field("F059N"),
@@ -908,6 +909,19 @@ BANK_CASH_RESOLVERS.update(
         canonical_label("五、现金及现金等价物净（减少）/增加额"): field("F071N"),
         canonical_label("加：年初现金及现金等价物余额"): field("F040N"),
         canonical_label("六、年末现金及现金等价物余额"): field("F041N"),
+    }
+)
+
+COMPANY_BALANCE_RESOLVERS.update(
+    {
+        canonical_label("应收利息"): field("F013N"),
+        canonical_label("应收股利"): field_or_official("F014N", "应收股利"),
+        canonical_label("买入返售金融资产"): field("F084N"),
+        canonical_label("交易性金融负债"): field("F113N"),
+        canonical_label("衍生金融负债"): field("F090N"),
+        canonical_label("长期应付款"): field("F055N"),
+        canonical_label("长期应付职工薪酬"): field("F102N"),
+        canonical_label("专项储备"): field("F072N"),
     }
 )
 
@@ -1410,13 +1424,18 @@ def select_official_value(
     official = official_value_for_label(record, label_key, occurrence)
     if official is None:
         return None
-    if label_key not in OFFICIAL_OVERRIDE_GUARDED_LABELS or resolver is None or is_placeholder_resolver(resolver):
+    if resolver is None or is_placeholder_resolver(resolver):
         return official
 
-    api_value = resolver(record)
-    if not isinstance(official, (int, float)) or not isinstance(api_value, (int, float)):
+    kind = resolver_kind(resolver)
+    if kind in {"official", "official_sum"}:
         return official
-    if abs(official - api_value) > max(abs(api_value) * 0.01, 1.0):
+    if kind == "field_or_official":
+        api_has_value = any(record.get(field_name) is not None for field_name in resolver_source_fields(resolver))
+        return None if api_has_value else official
+
+    api_value = resolver(record)
+    if api_value is not None:
         return None
     return official
 
