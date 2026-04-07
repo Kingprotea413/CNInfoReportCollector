@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from openpyxl import Workbook, load_workbook
 
-from cninfo_pipeline.client import CompanyRecord
+from cninfo_pipeline.client import CninfoClient, CompanyRecord
 from cninfo_pipeline.official_source import (
     extract_bank_balance_values_from_text,
     extract_company_income_values_from_text,
@@ -84,6 +84,19 @@ def iso_date(value: object) -> str:
 
 
 class ServiceTests(unittest.TestCase):
+    def test_client_fetch_indicator_statement_uses_stock2303(self) -> None:
+        client = CninfoClient.__new__(CninfoClient)
+        calls: list[tuple[str, dict[str, str] | None]] = []
+
+        def fake_request(path: str, params: dict[str, str] | None = None) -> dict:
+            calls.append((path, params))
+            return {"records": [{"F001D": "2024-12-31", "F006N": 1.2}]}
+
+        client._request_json = fake_request
+
+        self.assertEqual(client.fetch_indicator_statement("600900"), [{"F001D": "2024-12-31", "F006N": 1.2}])
+        self.assertEqual(calls, [("/api/stock/p_stock2303", {"scode": "600900"})])
+
     def test_filter_annual_merged_records(self) -> None:
         records = [
             {"ENDDATE": "2024-12-31", "F003V": "合并本期", "F010N": 1},
@@ -374,7 +387,7 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(income_sheet.cell(extra_gain_row, 2).value, 12)
             interest_row = find_row_index(income_sheet, "其中：利息费用")
             self.assertEqual(income_sheet.cell(interest_row, income_note_col).value, "PDF年报")
-            self.assertEqual(income_sheet.cell(extra_gain_row, income_note_col).value, "PDF年报")
+            self.assertEqual(income_sheet.cell(extra_gain_row, income_note_col).value, "API接口")
             income_labels = {income_sheet.cell(row, 1).value for row in range(1, income_sheet.max_row + 1)}
             self.assertNotIn("营业收入", income_labels)
 
@@ -910,7 +923,7 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(income_sheet.cell(row, note_col).value, "API接口")
             workbook.close()
 
-    def test_export_template_workbook_marks_pdf_api_conflict(self) -> None:
+    def test_export_template_workbook_prefers_api_when_pdf_conflicts(self) -> None:
         company = CompanyRecord(seccode="600900", secname="长江电力", orgname="中国长江电力股份有限公司")
         template = resolve_template("公司")
         balance_records = [build_balance_record("2024-12-31", F006N=10_000_000, F038N=28_000_000, F061N=15_000_000)]
@@ -942,8 +955,8 @@ class ServiceTests(unittest.TestCase):
             income_sheet = workbook[build_export_sheet_title(company.secname, "利润表")]
             note_col = find_column_index(income_sheet, "注释")
             row = find_row_index(income_sheet, "加：其他收益")
-            self.assertEqual(income_sheet.cell(row, 2).value, 1300)
-            self.assertEqual(income_sheet.cell(row, note_col).value, "PDF年报（与API不一致）")
+            self.assertEqual(income_sheet.cell(row, 2).value, 1200)
+            self.assertEqual(income_sheet.cell(row, note_col).value, "API接口")
             workbook.close()
 
     def test_export_template_workbook_uses_occurrence_specific_company_balance_resolvers(self) -> None:
@@ -1044,6 +1057,7 @@ class ServiceTests(unittest.TestCase):
                 F009N=2_000_000,
                 F012N=300_000,
                 F013N=400_000,
+                F014N=4_000_000,
                 F041N=500_000,
                 F042N=6_000_000,
                 F046N=700_000,
@@ -1083,8 +1097,8 @@ class ServiceTests(unittest.TestCase):
             for label, expected in {
                 "应收票据": 100,
                 "应收账款": 200,
-                "应收利息": 30,
-                "应收股利": 40,
+                "应收利息": 40,
+                "应收股利": 400,
                 "应付票据": 50,
                 "应付账款": 600,
                 "应付利息": 70,

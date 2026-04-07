@@ -190,6 +190,10 @@ class CninfoClient:
         payload = self._request_json("/api/stock/p_stock2302", {"scode": seccode})
         return list(payload.get("records", []))
 
+    def fetch_indicator_statement(self, seccode: str) -> list[dict[str, Any]]:
+        payload = self._request_json("/api/stock/p_stock2303", {"scode": seccode})
+        return list(payload.get("records", []))
+
     def fetch_bank_cash_flow_statement(self, seccode: str) -> list[dict[str, Any]]:
         payload = self._request_json("/api/stock/p_stock2327", {"scode": seccode, "type": "071001"})
         return list(payload.get("records", []))
